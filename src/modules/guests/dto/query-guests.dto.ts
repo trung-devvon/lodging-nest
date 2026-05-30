@@ -1,0 +1,30 @@
+import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+export class QueryGuestsDto {
+  @ApiPropertyOptional({ example: 'nguyen van' })
+  @IsString()
+  @IsOptional()
+  search?: string;
+
+  @ApiPropertyOptional({ example: 'VIP' })
+  @IsString()
+  @IsOptional()
+  tags?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  limit?: number = 20;
+}
