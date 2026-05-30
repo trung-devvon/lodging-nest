@@ -2,12 +2,12 @@
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
 generator client {
-    provider = "prisma-client-js"
+  provider = "prisma-client-js"
 }
 
 datasource db {
-    provider = "postgresql"
-    url      = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // ─────────────────────────────────────────────
@@ -15,139 +15,139 @@ datasource db {
 // ─────────────────────────────────────────────
 
 enum UserRole {
-    SUPER_ADMIN
-    ORG_OWNER
-    ORG_MANAGER
-    BRANCH_MANAGER
-    RECEPTIONIST
-    HOUSEKEEPER
-    GUEST
+  SUPER_ADMIN
+  ORG_OWNER
+  ORG_MANAGER
+  BRANCH_MANAGER
+  RECEPTIONIST
+  HOUSEKEEPER
+  GUEST
 }
 
 enum BusinessType {
-    HOMESTAY
-    HOTEL
-    RESORT
-    GUESTHOUSE
-    OTHER
+  HOMESTAY
+  HOTEL
+  RESORT
+  GUESTHOUSE
+  OTHER
 }
 
 enum OrganizationStatus {
-    PENDING_APPROVAL
-    ACTIVE
-    SUSPENDED
-    TERMINATED
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  TERMINATED
 }
 
 enum SubscriptionPlanName {
-    LU_HANH
-    TRU_CHAN
-    AN_CU
-    BAN_DIA
+  LU_HANH
+  TRU_CHAN
+  AN_CU
+  BAN_DIA
 }
 
 enum SubscriptionStatus {
-    TRIALING
-    ACTIVE
-    PAST_DUE
-    CANCELLED
-    EXPIRED
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
 }
 
 enum Region {
-    NORTH
-    CENTRAL
-    SOUTH
+  NORTH
+  CENTRAL
+  SOUTH
 }
 
 enum RoomType {
-    STANDARD
-    DELUXE
-    SUITE
-    DORMITORY
-    VILLA
+  STANDARD
+  DELUXE
+  SUITE
+  DORMITORY
+  VILLA
 }
 
 enum BedType {
-    SINGLE
-    DOUBLE
-    QUEEN
-    KING
-    BUNK
+  SINGLE
+  DOUBLE
+  QUEEN
+  KING
+  BUNK
 }
 
 enum RoomStatus {
-    AVAILABLE
-    OCCUPIED
-    MAINTENANCE
-    INACTIVE
+  AVAILABLE
+  OCCUPIED
+  MAINTENANCE
+  INACTIVE
 }
 
 enum BookingSource {
-    DIRECT_WEB
-    DIRECT_APP
-    WALK_IN
-    PHONE
-    BOOKING_COM
-    AIRBNB
-    AGODA
+  DIRECT_WEB
+  DIRECT_APP
+  WALK_IN
+  PHONE
+  BOOKING_COM
+  AIRBNB
+  AGODA
 }
 
 enum BookingStatus {
-    PENDING
-    CONFIRMED
-    CHECKED_IN
-    CHECKED_OUT
-    CANCELLED
-    NO_SHOW
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+  NO_SHOW
 }
 
 enum StaffRole {
-    ORG_MANAGER
-    BRANCH_MANAGER
-    RECEPTIONIST
-    HOUSEKEEPER
-    ACCOUNTANT
+  ORG_MANAGER
+  BRANCH_MANAGER
+  RECEPTIONIST
+  HOUSEKEEPER
+  ACCOUNTANT
 }
 
 enum TaskType {
-    CHECKOUT_CLEAN
-    DAILY_REFRESH
-    DEEP_CLEAN
-    MAINTENANCE_PREP
-    INSPECTION
+  CHECKOUT_CLEAN
+  DAILY_REFRESH
+  DEEP_CLEAN
+  MAINTENANCE_PREP
+  INSPECTION
 }
 
 enum TaskStatus {
-    PENDING
-    IN_PROGRESS
-    DONE
-    SKIPPED
+  PENDING
+  IN_PROGRESS
+  DONE
+  SKIPPED
 }
 
 enum Gender {
-    MALE
-    FEMALE
-    OTHER
+  MALE
+  FEMALE
+  OTHER
 }
 
 enum PriceAdjustType {
-    FIXED
-    PERCENT_INCREASE
-    PERCENT_DECREASE
+  FIXED
+  PERCENT_INCREASE
+  PERCENT_DECREASE
 }
 
 enum NotificationType {
-    BOOKING_NEW
-    BOOKING_CANCELLED
-    BOOKING_CHECKIN
-    BOOKING_CHECKOUT
-    BOOKING_EXTENDED
-    HOUSEKEEPING_ASSIGNED
-    HOUSEKEEPING_DONE
-    REVIEW_NEW
-    SUBSCRIPTION_EXPIRING
-    SUBSCRIPTION_EXPIRED
+  BOOKING_NEW
+  BOOKING_CANCELLED
+  BOOKING_CHECKIN
+  BOOKING_CHECKOUT
+  BOOKING_EXTENDED
+  HOUSEKEEPING_ASSIGNED
+  HOUSEKEEPING_DONE
+  REVIEW_NEW
+  SUBSCRIPTION_EXPIRING
+  SUBSCRIPTION_EXPIRED
 }
 
 // ─────────────────────────────────────────────
@@ -155,448 +155,452 @@ enum NotificationType {
 // ─────────────────────────────────────────────
 
 model User {
-    id               String    @id @default(uuid())
-    email            String    @unique
-    passwordHash     String
-    phone            String?
-    role             UserRole
-    isActive         Boolean   @default(true)
-    isEmailVerified  Boolean   @default(false)
-    lastLoginAt         DateTime?
-    failedLoginCount    Int       @default(0)
-    lockedUntil         DateTime?
-    resetTokenHash      String?   @unique
-    resetTokenExpiresAt DateTime?
-    twoFactorEnabled    Boolean   @default(false)
-    twoFactorSecret     String?
-    createdAt        DateTime  @default(now())
-    updatedAt        DateTime  @updatedAt
-    deletedAt        DateTime?
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  passwordHash        String
+  phone               String?
+  role                UserRole
+  isActive            Boolean   @default(true)
+  isEmailVerified     Boolean   @default(false)
+  lastLoginAt         DateTime?
+  failedLoginCount    Int       @default(0)
+  lockedUntil         DateTime?
+  resetTokenHash      String?   @unique
+  resetTokenExpiresAt DateTime?
+  twoFactorEnabled    Boolean   @default(false)
+  twoFactorSecret     String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  deletedAt           DateTime?
 
-    // Relations
-    ownedOrganizations Organization[] @relation("OrgOwner")
-    staffProfiles      Staff[]
-    guestProfiles      GuestProfile[]
-    cancelledBookings  Booking[]      @relation("BookingCancelledBy")
-    refreshTokens      RefreshToken[]
-    auditLogs          AuditLog[]
-    notifications      Notification[]
+  // Relations
+  ownedOrganizations Organization[] @relation("OrgOwner")
+  staffProfiles      Staff[]
+  guestProfiles      GuestProfile[]
+  cancelledBookings  Booking[]      @relation("BookingCancelledBy")
+  refreshTokens      RefreshToken[]
+  auditLogs          AuditLog[]
+  notifications      Notification[]
 
-    @@map("users")
+  @@map("users")
 }
 
 model Organization {
-    id           String             @id @default(uuid())
-    ownerId      String
-    name         String
-    slug         String             @unique
-    taxCode      String?
-    businessType BusinessType
-    logoUrl      String?
-    status       OrganizationStatus @default(PENDING_APPROVAL)
-    createdAt    DateTime           @default(now())
-    updatedAt    DateTime           @updatedAt
-    deletedAt    DateTime?
+  id           String             @id @default(uuid())
+  ownerId      String
+  name         String
+  slug         String             @unique
+  taxCode      String?
+  businessType BusinessType
+  logoUrl      String?
+  status       OrganizationStatus @default(PENDING_APPROVAL)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
 
-    // Relations
-    owner         User           @relation("OrgOwner", fields: [ownerId], references: [id])
-    branches      Branch[]
-    staffMembers  Staff[]
-    guestProfiles GuestProfile[]
-    subscriptions Subscription[]
+  // Relations
+  owner         User           @relation("OrgOwner", fields: [ownerId], references: [id])
+  branches      Branch[]
+  staffMembers  Staff[]
+  guestProfiles GuestProfile[]
+  subscriptions Subscription[]
 
-    @@map("organizations")
+  @@map("organizations")
 }
 
 model SubscriptionPlan {
-    id                   String               @id @default(uuid())
-    name                 SubscriptionPlanName @unique
-    displayName          String
-    monthlyPrice         Decimal              @db.Decimal(12, 2)
-    yearlyPrice          Decimal?             @db.Decimal(12, 2)
-    maxBranches          Int
-    maxRoomsPerBranch    Int
-    canListOnMarketplace Boolean
-    hasAdvancedReports   Boolean
-    hasPrioritySupport   Boolean
-    isActive             Boolean              @default(true)
+  id                   String               @id @default(uuid())
+  name                 SubscriptionPlanName @unique
+  displayName          String
+  monthlyPrice         Decimal              @db.Decimal(12, 2)
+  yearlyPrice          Decimal?             @db.Decimal(12, 2)
+  maxBranches          Int
+  maxRoomsPerBranch    Int
+  canListOnMarketplace Boolean
+  hasAdvancedReports   Boolean
+  hasPrioritySupport   Boolean
+  isActive             Boolean              @default(true)
 
-    // Relations
-    subscriptions Subscription[]
+  // Relations
+  subscriptions Subscription[]
 
-    @@map("subscription_plans")
+  @@map("subscription_plans")
 }
 
 model Subscription {
-    id                 String             @id @default(uuid())
-    organizationId     String
-    planId             String
-    status             SubscriptionStatus
-    currentPeriodStart DateTime
-    currentPeriodEnd   DateTime
-    cancelledAt        DateTime?
-    createdAt          DateTime           @default(now())
-    updatedAt          DateTime           @updatedAt
+  id                 String             @id @default(uuid())
+  organizationId     String             @unique
+  planId             String
+  status             SubscriptionStatus
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  cancelledAt        DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
-    // Relations
-    organization Organization     @relation(fields: [organizationId], references: [id])
-    plan         SubscriptionPlan @relation(fields: [planId], references: [id])
+  // Relations
+  organization Organization     @relation(fields: [organizationId], references: [id])
+  plan         SubscriptionPlan @relation(fields: [planId], references: [id])
 
-    @@map("subscriptions")
+  @@map("subscriptions")
 }
 
 model Province {
-    id        String  @id @default(uuid())
-    name      String
-    slug      String  @unique
-    region    Region
-    isActive  Boolean @default(true)
-    sortOrder Int     @default(0)
+  id        String  @id @default(uuid())
+  name      String
+  slug      String  @unique
+  region    Region
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
 
-    // Relations
-    branches Branch[]
+  // Relations
+  branches Branch[]
 
-    @@map("provinces")
+  @@map("provinces")
 }
 
 model Branch {
-    id                    String    @id @default(uuid())
-    organizationId        String
-    provinceId            String
-    name                  String
-    address               String
-    district              String?
-    latitude              Decimal?  @db.Decimal(10, 7)
-    longitude             Decimal?  @db.Decimal(10, 7)
-    description           String?   @db.Text
-    amenities             Json      @default("[]")
-    checkInTime           String    @default("14:00")
-    checkOutTime          String    @default("12:00")
-    bufferHours           Int       @default(2)
-    isActive              Boolean   @default(true)
-    isListedOnMarketplace Boolean   @default(false)
-    createdAt             DateTime  @default(now())
-    updatedAt             DateTime  @updatedAt
-    deletedAt             DateTime?
+  id                    String    @id @default(uuid())
+  organizationId        String
+  provinceId            String
+  name                  String
+  address               String
+  district              String?
+  latitude              Decimal?  @db.Decimal(10, 7)
+  longitude             Decimal?  @db.Decimal(10, 7)
+  description           String?   @db.Text
+  amenities             Json      @default("[]")
+  checkInTime           String    @default("14:00")
+  checkOutTime          String    @default("12:00")
+  bufferHours           Int       @default(2)
+  isActive              Boolean   @default(true)
+  isListedOnMarketplace Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  deletedAt             DateTime?
 
-    // Relations
-    organization      Organization       @relation(fields: [organizationId], references: [id])
-    province          Province           @relation(fields: [provinceId], references: [id])
-    rooms             Room[]
-    staffMembers      Staff[]
-    branchImages      BranchImage[]
-    housekeepingTasks HousekeepingTask[]
-    reviews           Review[]
+  // Relations
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  province          Province           @relation(fields: [provinceId], references: [id])
+  rooms             Room[]
+  staffMembers      Staff[]
+  branchImages      BranchImage[]
+  housekeepingTasks HousekeepingTask[]
+  reviews           Review[]
 
-    @@map("branches")
+  @@map("branches")
 }
 
 model BranchImage {
-    id                 String   @id @default(uuid())
-    branchId           String
-    cloudinaryPublicId String
-    url                String
-    altText            String?
-    isCover            Boolean  @default(false)
-    sortOrder          Int      @default(0)
-    createdAt          DateTime @default(now())
+  id                 String   @id @default(uuid())
+  branchId           String
+  cloudinaryPublicId String
+  url                String
+  altText            String?
+  isCover            Boolean  @default(false)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
 
-    // Relations
-    branch Branch @relation(fields: [branchId], references: [id])
+  // Relations
+  branch Branch @relation(fields: [branchId], references: [id])
 
-    @@map("branch_images")
+  @@map("branch_images")
 }
 
 model Room {
-    id            String     @id @default(uuid())
-    branchId      String
-    name          String
-    roomType      RoomType
-    capacity      Int
-    bedCount      Int
-    bedType       BedType
-    floorNumber   Int?
-    roomAmenities Json       @default("[]")
-    bufferHours   Int?
-    status        RoomStatus @default(AVAILABLE)
-    createdAt     DateTime   @default(now())
-    updatedAt     DateTime   @updatedAt
-    deletedAt     DateTime?
+  id            String     @id @default(uuid())
+  branchId      String
+  name          String
+  roomType      RoomType
+  capacity      Int
+  bedCount      Int
+  bedType       BedType
+  floorNumber   Int?
+  roomAmenities Json       @default("[]")
+  bufferHours   Int?
+  status        RoomStatus @default(AVAILABLE)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  deletedAt     DateTime?
 
-    // Relations
-    branch            Branch             @relation(fields: [branchId], references: [id])
-    roomRates         RoomRate[]
-    roomImages        RoomImage[]
-    roomPricings      RoomPricing[]
-    bookings          Booking[]
-    housekeepingTasks HousekeepingTask[]
-    reviews           Review[]
+  // Relations
+  branch            Branch             @relation(fields: [branchId], references: [id])
+  roomRates         RoomRate[]
+  roomImages        RoomImage[]
+  roomPricings      RoomPricing[]
+  bookings          Booking[]
+  housekeepingTasks HousekeepingTask[]
+  reviews           Review[]
 
-    @@map("rooms")
+  @@map("rooms")
 }
 
 model RoomImage {
-    id                 String   @id @default(uuid())
-    roomId             String
-    cloudinaryPublicId String
-    url                String
-    altText            String?
-    isCover            Boolean  @default(false)
-    sortOrder          Int      @default(0)
-    createdAt          DateTime @default(now())
+  id                 String   @id @default(uuid())
+  roomId             String
+  cloudinaryPublicId String
+  url                String
+  altText            String?
+  isCover            Boolean  @default(false)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
 
-    // Relations
-    room Room @relation(fields: [roomId], references: [id])
+  // Relations
+  room Room @relation(fields: [roomId], references: [id])
 
-    @@map("room_images")
+  @@map("room_images")
 }
 
 model RoomRate {
-    id            String   @id @default(uuid())
-    roomId        String
-    label         String
-    durationHours Int
-    price         Decimal  @db.Decimal(12, 2)
-    isActive      Boolean  @default(true)
-    sortOrder     Int      @default(0)
-    createdAt     DateTime @default(now())
-    updatedAt     DateTime @updatedAt
+  id            String   @id @default(uuid())
+  roomId        String
+  label         String
+  durationHours Int
+  price         Decimal  @db.Decimal(12, 2)
+  isActive      Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-    // Relations
-    room         Room          @relation(fields: [roomId], references: [id])
-    bookings     Booking[]
-    roomPricings RoomPricing[]
+  // Relations
+  room         Room          @relation(fields: [roomId], references: [id])
+  bookings     Booking[]
+  roomPricings RoomPricing[]
 
-    @@map("room_rates")
+  @@map("room_rates")
 }
 
 model RoomPricing {
-    id              String          @id @default(uuid())
-    roomId          String
-    rateId          String?
-    label           String?
-    startDate       DateTime        @db.Date
-    endDate         DateTime        @db.Date
-    overridePrice   Decimal         @db.Decimal(12, 2)
-    priceAdjustType PriceAdjustType
-    adjustValue     Decimal         @db.Decimal(12, 2)
-    isActive        Boolean         @default(true)
-    createdAt       DateTime        @default(now())
-    updatedAt       DateTime        @updatedAt
+  id              String          @id @default(uuid())
+  roomId          String
+  rateId          String?
+  label           String?
+  startDate       DateTime        @db.Date
+  endDate         DateTime        @db.Date
+  overridePrice   Decimal         @db.Decimal(12, 2)
+  priceAdjustType PriceAdjustType
+  adjustValue     Decimal         @db.Decimal(12, 2)
+  isActive        Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
-    // Relations
-    room Room      @relation(fields: [roomId], references: [id])
-    rate RoomRate? @relation(fields: [rateId], references: [id])
+  // Relations
+  room Room      @relation(fields: [roomId], references: [id])
+  rate RoomRate? @relation(fields: [rateId], references: [id])
 
-    @@map("room_pricings")
+  @@map("room_pricings")
 }
 
 model GuestProfile {
-    id             String    @id @default(uuid())
-    userId         String?
-    organizationId String
-    fullName       String
-    phone          String
-    email          String?
-    nationalId     String?
-    nationality    String?
-    dateOfBirth    DateTime? @db.Date
-    gender         Gender?
-    notes          String?   @db.Text
-    tags           String[]  @default([])
-    totalStays     Int       @default(0)
-    totalSpent     Decimal   @default(0) @db.Decimal(14, 2)
-    createdAt      DateTime  @default(now())
-    updatedAt      DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  userId         String?
+  organizationId String
+  fullName       String
+  phone          String
+  email          String?
+  nationalId     String?
+  nationality    String?
+  dateOfBirth    DateTime? @db.Date
+  gender         Gender?
+  notes          String?   @db.Text
+  tags           String[]  @default([])
+  totalStays     Int       @default(0)
+  totalSpent     Decimal   @default(0) @db.Decimal(14, 2)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-    // Relations
-    user         User?        @relation(fields: [userId], references: [id])
-    organization Organization @relation(fields: [organizationId], references: [id])
-    bookings     Booking[]
-    reviews      Review[]
+  // Relations
+  user         User?        @relation(fields: [userId], references: [id])
+  organization Organization @relation(fields: [organizationId], references: [id])
+  bookings     Booking[]
+  reviews      Review[]
 
-    @@map("guest_profiles")
+  @@map("guest_profiles")
 }
 
 model Booking {
-    id                String        @id @default(uuid())
-    bookingCode       String        @unique
-    guestProfileId    String
-    roomId            String
-    createdByStaffId  String?
-    checkIn           DateTime
-    checkOut          DateTime
-    actualCheckOut    DateTime?
-    rateId            String
-    basePrice         Decimal       @db.Decimal(12, 2)
-    finalPrice        Decimal       @db.Decimal(12, 2)
-    priceNote         String?       @db.Text
-    depositAmount     Decimal?      @db.Decimal(12, 2)
-    numAdults         Int
-    numChildren       Int           @default(0)
-    note              String?       @db.Text
-    source            BookingSource
-    status            BookingStatus @default(PENDING)
-    cancelledAt       DateTime?
-    cancelledByUserId String?
-    cancelReason      String?       @db.Text
-    createdAt         DateTime      @default(now())
-    updatedAt         DateTime      @updatedAt
+  id                String        @id @default(uuid())
+  bookingCode       String        @unique
+  guestProfileId    String
+  roomId            String
+  createdByStaffId  String?
+  checkIn           DateTime
+  checkOut          DateTime
+  actualCheckOut    DateTime?
+  rateId            String
+  basePrice         Decimal       @db.Decimal(12, 2)
+  finalPrice        Decimal       @db.Decimal(12, 2)
+  priceNote         String?       @db.Text
+  depositAmount     Decimal?      @db.Decimal(12, 2)
+  numAdults         Int
+  numChildren       Int           @default(0)
+  note              String?       @db.Text
+  source            BookingSource
+  status            BookingStatus @default(PENDING)
+  cancelledAt       DateTime?
+  cancelledByUserId String?
+  cancelReason      String?       @db.Text
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
-    // Relations
-    guestProfile      GuestProfile       @relation(fields: [guestProfileId], references: [id])
-    room              Room               @relation(fields: [roomId], references: [id])
-    createdByStaff    Staff?             @relation("BookingCreatedBy", fields: [createdByStaffId], references: [id])
-    cancelledByUser   User?              @relation("BookingCancelledBy", fields: [cancelledByUserId], references: [id])
-    rate              RoomRate           @relation(fields: [rateId], references: [id])
-    extensions        BookingExtension[]
-    housekeepingTasks HousekeepingTask[]
-    review            Review?
+  // Relations
+  guestProfile      GuestProfile       @relation(fields: [guestProfileId], references: [id])
+  room              Room               @relation(fields: [roomId], references: [id])
+  createdByStaff    Staff?             @relation("BookingCreatedBy", fields: [createdByStaffId], references: [id])
+  cancelledByUser   User?              @relation("BookingCancelledBy", fields: [cancelledByUserId], references: [id])
+  rate              RoomRate           @relation(fields: [rateId], references: [id])
+  extensions        BookingExtension[]
+  housekeepingTasks HousekeepingTask[]
+  review            Review?
 
-    @@map("bookings")
+  @@map("bookings")
 }
 
 model BookingExtension {
-    id                String   @id @default(uuid())
-    bookingId         String
-    extraHours        Int
-    extraPrice        Decimal  @db.Decimal(12, 2)
-    newCheckOut       DateTime
-    approvedByStaffId String
-    note              String?  @db.Text
-    createdAt         DateTime @default(now())
+  id                String   @id @default(uuid())
+  bookingId         String
+  extraHours        Int
+  extraPrice        Decimal  @db.Decimal(12, 2)
+  newCheckOut       DateTime
+  approvedByStaffId String
+  note              String?  @db.Text
+  createdAt         DateTime @default(now())
 
-    // Relations
-    booking         Booking @relation(fields: [bookingId], references: [id])
-    approvedByStaff Staff   @relation(fields: [approvedByStaffId], references: [id])
+  // Relations
+  booking         Booking @relation(fields: [bookingId], references: [id])
+  approvedByStaff Staff   @relation(fields: [approvedByStaffId], references: [id])
 
-    @@map("booking_extensions")
+  @@map("booking_extensions")
 }
 
 model Staff {
-    id             String    @id @default(uuid())
-    userId         String
-    organizationId String
-    branchId       String?
-    position       String
-    staffRole      StaffRole
-    hireDate       DateTime  @db.Date
-    terminatedDate DateTime? @db.Date
-    isActive       Boolean   @default(true)
-    createdAt      DateTime  @default(now())
-    updatedAt      DateTime  @updatedAt
+  id             String    @id @default(uuid())
+  userId         String
+  organizationId String
+  branchId       String?
+  position       String
+  staffRole      StaffRole
+  hireDate       DateTime  @db.Date
+  terminatedDate DateTime? @db.Date
+  isActive       Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-    // Relations
-    user               User               @relation(fields: [userId], references: [id])
-    organization       Organization       @relation(fields: [organizationId], references: [id])
-    branch             Branch?            @relation(fields: [branchId], references: [id])
-    createdBookings    Booking[]          @relation("BookingCreatedBy")
-    approvedExtensions BookingExtension[]
-    assignedTasks      HousekeepingTask[] @relation("TaskAssignedTo")
-    assignedByTasks    HousekeepingTask[] @relation("TaskAssignedBy")
-    reviewReplies      Review[]
+  // Relations
+  user               User               @relation(fields: [userId], references: [id])
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  branch             Branch?            @relation(fields: [branchId], references: [id])
+  createdBookings    Booking[]          @relation("BookingCreatedBy")
+  approvedExtensions BookingExtension[]
+  assignedTasks      HousekeepingTask[] @relation("TaskAssignedTo")
+  assignedByTasks    HousekeepingTask[] @relation("TaskAssignedBy")
+  reviewReplies      Review[]
 
-    @@map("staff")
+  @@map("staff")
 }
 
 model HousekeepingTask {
-    id                String     @id @default(uuid())
-    roomId            String
-    bookingId         String?
-    assignedToStaffId String?
-    assignedByStaffId String
-    branchId          String
-    taskType          TaskType
-    scheduledDate     DateTime   @db.Date
-    scheduledTime     String?
-    status            TaskStatus @default(PENDING)
-    notes             String?    @db.Text
-    startedAt         DateTime?
-    completedAt       DateTime?
-    createdAt         DateTime   @default(now())
-    updatedAt         DateTime   @updatedAt
+  id                String     @id @default(uuid())
+  roomId            String
+  bookingId         String?
+  assignedToStaffId String?
+  assignedByStaffId String
+  branchId          String
+  taskType          TaskType
+  scheduledDate     DateTime   @db.Date
+  scheduledTime     String?
+  status            TaskStatus @default(PENDING)
+  notes             String?    @db.Text
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
 
-    // Relations
-    room            Room     @relation(fields: [roomId], references: [id])
-    booking         Booking? @relation(fields: [bookingId], references: [id])
-    assignedToStaff Staff?   @relation("TaskAssignedTo", fields: [assignedToStaffId], references: [id])
-    assignedByStaff Staff    @relation("TaskAssignedBy", fields: [assignedByStaffId], references: [id])
-    branch          Branch   @relation(fields: [branchId], references: [id])
+  // Relations
+  room            Room     @relation(fields: [roomId], references: [id])
+  booking         Booking? @relation(fields: [bookingId], references: [id])
+  assignedToStaff Staff?   @relation("TaskAssignedTo", fields: [assignedToStaffId], references: [id])
+  assignedByStaff Staff    @relation("TaskAssignedBy", fields: [assignedByStaffId], references: [id])
+  branch          Branch   @relation(fields: [branchId], references: [id])
 
-    @@map("housekeeping_tasks")
+  @@map("housekeeping_tasks")
 }
 
 model Review {
-    id               String    @id @default(uuid())
-    bookingId        String    @unique
-    guestProfileId   String
-    roomId           String
-    branchId         String
-    rating           Int
-    comment          String?   @db.Text
-    replyFromStaff   String?   @db.Text
-    repliedByStaffId String?
-    repliedAt        DateTime?
-    isPublished      Boolean   @default(true)
-    createdAt        DateTime  @default(now())
-    updatedAt        DateTime  @updatedAt
+  id               String    @id @default(uuid())
+  bookingId        String    @unique
+  guestProfileId   String
+  roomId           String
+  branchId         String
+  rating           Int
+  comment          String?   @db.Text
+  replyFromStaff   String?   @db.Text
+  repliedByStaffId String?
+  repliedAt        DateTime?
+  isPublished      Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
-    // Relations
-    booking        Booking      @relation(fields: [bookingId], references: [id])
-    guestProfile   GuestProfile @relation(fields: [guestProfileId], references: [id])
-    room           Room         @relation(fields: [roomId], references: [id])
-    branch         Branch       @relation(fields: [branchId], references: [id])
-    repliedByStaff Staff?       @relation(fields: [repliedByStaffId], references: [id])
+  // Relations
+  booking        Booking      @relation(fields: [bookingId], references: [id])
+  guestProfile   GuestProfile @relation(fields: [guestProfileId], references: [id])
+  room           Room         @relation(fields: [roomId], references: [id])
+  branch         Branch       @relation(fields: [branchId], references: [id])
+  repliedByStaff Staff?       @relation(fields: [repliedByStaffId], references: [id])
 
-    @@map("reviews")
+  @@map("reviews")
 }
 
 model Notification {
-    id              String           @id @default(uuid())
-    recipientUserId String
-    type            NotificationType
-    title           String
-    body            String
-    data            Json?
-    isRead          Boolean          @default(false)
-    readAt          DateTime?
-    createdAt       DateTime         @default(now())
+  id              String           @id @default(uuid())
+  recipientUserId String
+  type            NotificationType
+  title           String
+  body            String
+  data            Json?
+  isRead          Boolean          @default(false)
+  readAt          DateTime?
+  createdAt       DateTime         @default(now())
 
-    // Relations
-    recipient User @relation(fields: [recipientUserId], references: [id])
+  // Relations
+  recipient User @relation(fields: [recipientUserId], references: [id])
 
-    @@map("notifications")
+  @@map("notifications")
 }
 
 model AuditLog {
-    id          String   @id @default(uuid())
-    actorUserId String?
-    actorIp     String
-    action      String
-    targetTable String
-    targetId    String
-    oldValue    Json?
-    newValue    Json?
-    createdAt   DateTime @default(now())
+  id          String   @id @default(uuid())
+  actorUserId String?
+  actorIp     String
+  action      String
+  targetTable String
+  targetId    String
+  oldValue    Json?
+  newValue    Json?
+  createdAt   DateTime @default(now())
 
-    // Relations
-    actorUser User? @relation(fields: [actorUserId], references: [id])
+  // Relations
+  actorUser User? @relation(fields: [actorUserId], references: [id])
 
-    @@map("audit_logs")
+  @@map("audit_logs")
 }
 
 model RefreshToken {
-    id         String    @id @default(uuid())
-    userId     String
-    tokenHash  String
-    deviceInfo String?
-    ipAddress  String?
-    expiresAt  DateTime
-    revokedAt  DateTime?
-    createdAt  DateTime  @default(now())
+  id                String    @id @default(uuid())
+  userId            String
+  familyId          String
+  tokenHash         String    @unique
+  deviceInfo        String?
+  ipAddress         String?
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  revokedReason     String?
+  replacedByTokenId String?
+  createdAt         DateTime  @default(now())
 
-    // Relations
-    user User @relation(fields: [userId], references: [id])
+  // Relations
+  user User @relation(fields: [userId], references: [id])
 
-    @@map("refresh_tokens")
+  @@index([userId, familyId, revokedAt])
+  @@map("refresh_tokens")
 }

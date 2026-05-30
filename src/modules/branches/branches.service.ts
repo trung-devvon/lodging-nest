@@ -14,6 +14,22 @@ export class BranchesService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(organizationId: string, dto: CreateBranchDto) {
+    const organization = await this.prisma.organization.findFirst({
+      where: { id: organizationId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!organization) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    const province = await this.prisma.province.findFirst({
+      where: { id: dto.provinceId, isActive: true },
+      select: { id: true },
+    });
+    if (!province) {
+      throw new BadRequestException('Province not found or inactive');
+    }
+
     const subscription = await this.prisma.subscription.findFirst({
       where: { organizationId, status: { in: ['ACTIVE', 'TRIALING'] } },
       include: { plan: true },
@@ -74,7 +90,7 @@ export class BranchesService {
         isActive: true,
         isListedOnMarketplace: true,
         bufferHours: true,
-        _count: { select: { rooms: true } },
+        _count: { select: { rooms: { where: { deletedAt: null } } } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -94,11 +110,32 @@ export class BranchesService {
     return branch;
   }
 
-  async update(id: string, organizationId: string, dto: UpdateBranchDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    userId: string,
+    role: string,
+    dto: UpdateBranchDto,
+  ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id, organizationId, deletedAt: null },
     });
     if (!branch) throw new NotFoundException('Branch not found');
+
+    if (role === 'BRANCH_MANAGER') {
+      const staff = await this.prisma.staff.findFirst({
+        where: {
+          userId,
+          organizationId,
+          isActive: true,
+        },
+        select: { branchId: true },
+      });
+
+      if (!staff?.branchId || staff.branchId !== id) {
+        throw new ForbiddenException('You can only update your assigned branch');
+      }
+    }
 
     return this.prisma.branch.update({
       where: { id },
@@ -134,7 +171,7 @@ export class BranchesService {
       if (!subscription || !subscription.plan.canListOnMarketplace) {
         throw new ForbiddenException({
           code: 'PLAN_NOT_ALLOWED',
-          message: `Your plan does not support marketplace listing. Please upgrade.`,
+          message: 'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
         });
       }
     }
@@ -152,22 +189,60 @@ export class BranchesService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
+    const activeRoomCount = await this.prisma.room.count({
+      where: {
+        branchId: id,
+        deletedAt: null,
+      },
+    });
+    if (activeRoomCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete branch while active rooms still exist',
+      );
+    }
+
+    const activeBookingCount = await this.prisma.booking.count({
+      where: {
+        room: {
+          branchId: id,
+          deletedAt: null,
+        },
+        status: {
+          in: ['PENDING', 'CONFIRMED', 'CHECKED_IN'],
+        },
+      },
+    });
+    if (activeBookingCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete branch while active bookings still exist',
+      );
+    }
+
     await this.prisma.branch.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: {
+        isActive: false,
+        isListedOnMarketplace: false,
+        deletedAt: new Date(),
+      },
     });
-    return { message: 'Branch deleted' };
+    return { message: 'Branch has been archived' };
   }
 
   async getOrganizationIdFromUser(userId: string): Promise<string | null> {
     const staff = await this.prisma.staff.findFirst({
-      where: { userId },
-      include: { branch: { select: { organizationId: true } } },
+      where: {
+        userId,
+        isActive: true,
+        organization: { deletedAt: null },
+      },
+      select: { organizationId: true },
     });
-    if (staff?.branch) return staff.branch.organizationId;
+    if (staff?.organizationId) return staff.organizationId;
 
     const org = await this.prisma.organization.findFirst({
-      where: { ownerId: userId },
+      where: { ownerId: userId, deletedAt: null },
+      select: { id: true },
     });
     return org?.id ?? null;
   }

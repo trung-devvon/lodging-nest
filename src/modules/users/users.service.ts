@@ -9,8 +9,8 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getMe(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
       select: {
         id: true,
         email: true,
@@ -26,7 +26,10 @@ export class UsersService {
   }
 
   async updateMe(id: string, dto: UpdateProfileDto) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
     if (!user) throw new NotFoundException('User not found');
 
     const updated = await this.prisma.user.update({
@@ -45,7 +48,7 @@ export class UsersService {
 
     const where: any = { deletedAt: null };
     if (role) where.role = role;
-    if (isActive !== undefined) where.isActive = isActive === 'true';
+    if (isActive !== undefined) where.isActive = isActive;
     if (search) {
       where.OR = [
         { email: { contains: search, mode: 'insensitive' } },
@@ -74,7 +77,9 @@ export class UsersService {
   }
 
   async toggleActive(id: string, dto: ToggleActiveDto) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+    });
     if (!user) throw new NotFoundException('User not found');
     if (user.role === 'SUPER_ADMIN') {
       throw new ForbiddenException('Cannot deactivate super admin');

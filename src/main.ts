@@ -48,6 +48,16 @@ async function bootstrap() {
       .setTitle('Lodging Platform API')
       .setVersion('1.0')
       .addBearerAuth()
+      .addCookieAuth('accessToken', {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'accessToken',
+      })
+      .addCookieAuth('refreshToken', {
+        type: 'apiKey',
+        in: 'cookie',
+        name: 'refreshToken',
+      })
       .build();
     SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
   }

@@ -8,7 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as argon2 from 'argon2';
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, randomUUID } from 'crypto';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -20,6 +20,14 @@ export class AuthService {
   private readonly accessTokenSecret: string;
   private readonly maxFailedAttempts = 5;
   private readonly lockoutMinutes = 15;
+  private readonly revokeReasons = {
+    rotated: 'ROTATED',
+    logout: 'LOGOUT',
+    reuseDetected: 'REUSE_DETECTED',
+    inactiveUser: 'INACTIVE_USER',
+    passwordChanged: 'PASSWORD_CHANGED',
+    passwordReset: 'PASSWORD_RESET',
+  } as const;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -28,7 +36,7 @@ export class AuthService {
     this.accessTokenSecret = process.env.JWT_ACCESS_SECRET ?? 'access-secret';
   }
 
-  async register(dto: RegisterDto, ipAddress?: string) {
+  async register(dto: RegisterDto, ipAddress?: string, deviceInfo?: string) {
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
@@ -46,6 +54,13 @@ export class AuthService {
     const passwordHash = await argon2.hash(dto.password);
 
     const user = await this.prisma.$transaction(async (tx) => {
+      const defaultPlan = await tx.subscriptionPlan.findUnique({
+        where: { name: 'LU_HANH' },
+      });
+      if (!defaultPlan) {
+        throw new BadRequestException('Default subscription plan not found. Run seed first.');
+      }
+
       const newUser = await tx.user.create({
         data: {
           email: dto.email.toLowerCase(),
@@ -55,7 +70,7 @@ export class AuthService {
         },
       });
 
-      await tx.organization.create({
+      const organization = await tx.organization.create({
         data: {
           ownerId: newUser.id,
           name: dto.name,
@@ -66,16 +81,9 @@ export class AuthService {
         },
       });
 
-      const defaultPlan = await tx.subscriptionPlan.findUnique({
-        where: { name: 'LU_HANH' },
-      });
-      if (!defaultPlan) {
-        throw new BadRequestException('Default subscription plan not found. Run seed first.');
-      }
-
       await tx.subscription.create({
         data: {
-          organizationId: newUser.id,
+          organizationId: organization.id,
           planId: defaultPlan.id,
           status: 'TRIALING',
           currentPeriodStart: new Date(),
@@ -86,11 +94,11 @@ export class AuthService {
       return newUser;
     });
 
-    const tokens = await this.generateTokens(user.id, user.role, ipAddress);
+    const tokens = await this.generateTokens(user.id, user.role, ipAddress, deviceInfo);
     return { user, ...tokens };
   }
 
-  async login(dto: LoginDto, ipAddress?: string) {
+  async login(dto: LoginDto, ipAddress?: string, deviceInfo?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
     });
@@ -141,32 +149,93 @@ export class AuthService {
       data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() },
     });
 
-    const tokens = await this.generateTokens(user.id, user.role, ipAddress);
+    const tokens = await this.generateTokens(user.id, user.role, ipAddress, deviceInfo);
     return { user, ...tokens };
   }
 
-  async refresh(refreshToken: string, ipAddress?: string) {
+  async refresh(refreshToken: string, ipAddress?: string, deviceInfo?: string) {
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
-    const storedToken = await this.prisma.refreshToken.findFirst({
-      where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } },
+    const storedToken = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash },
       include: { user: true },
     });
 
-    if (!storedToken) {
+    if (!storedToken || storedToken.expiresAt <= new Date()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    await this.prisma.refreshToken.update({
-      where: { id: storedToken.id },
-      data: { revokedAt: new Date() },
+    if (storedToken.revokedAt) {
+      if (storedToken.revokedReason === this.revokeReasons.rotated) {
+        await this.revokeRefreshTokenFamily(
+          storedToken.userId,
+          storedToken.familyId,
+          this.revokeReasons.reuseDetected,
+        );
+      }
+
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    if (!storedToken.user.isActive || storedToken.user.deletedAt) {
+      await this.revokeRefreshTokenFamily(
+        storedToken.userId,
+        storedToken.familyId,
+        this.revokeReasons.inactiveUser,
+      );
+      throw new UnauthorizedException('User is inactive');
+    }
+
+    const newRefreshToken = randomBytes(48).toString('hex');
+    const newTokenHash = createHash('sha256')
+      .update(newRefreshToken)
+      .digest('hex');
+
+    const rotation = await this.prisma.$transaction(async (tx) => {
+      const nextToken = await tx.refreshToken.create({
+        data: {
+          userId: storedToken.user.id,
+          familyId: storedToken.familyId,
+          tokenHash: newTokenHash,
+          deviceInfo,
+          ipAddress,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const revoked = await tx.refreshToken.updateMany({
+        where: { id: storedToken.id, revokedAt: null },
+        data: {
+          revokedAt: new Date(),
+          revokedReason: this.revokeReasons.rotated,
+          replacedByTokenId: nextToken.id,
+        },
+      });
+
+      return { nextToken, revokedCount: revoked.count };
     });
 
-    const tokens = await this.generateTokens(
-      storedToken.user.id,
-      storedToken.user.role,
-      ipAddress,
+    if (rotation.revokedCount !== 1) {
+      await this.revokeRefreshTokenFamily(
+        storedToken.userId,
+        storedToken.familyId,
+        this.revokeReasons.reuseDetected,
+      );
+      throw new UnauthorizedException('Invalid or expired refresh token');
+    }
+
+    const accessToken = await this.jwtService.signAsync(
+      { sub: storedToken.user.id, role: storedToken.user.role },
+      {
+        secret: this.accessTokenSecret,
+        expiresIn: '15m',
+      },
     );
-    return { user: storedToken.user, ...tokens };
+
+    return {
+      user: storedToken.user,
+      accessToken,
+      refreshToken: newRefreshToken,
+    };
   }
 
   async logout(refreshToken: string) {
@@ -175,7 +244,10 @@ export class AuthService {
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
     await this.prisma.refreshToken.updateMany({
       where: { tokenHash, revokedAt: null },
-      data: { revokedAt: new Date() },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: this.revokeReasons.logout,
+      },
     });
   }
 
@@ -202,7 +274,6 @@ export class AuthService {
 
     return {
       message: 'If the email exists, a reset link has been sent',
-      resetToken,
     };
   }
 
@@ -232,6 +303,14 @@ export class AuthService {
       },
     });
 
+    await this.prisma.refreshToken.updateMany({
+      where: { userId: user.id, revokedAt: null },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: this.revokeReasons.passwordReset,
+      },
+    });
+
     return { message: 'Password has been reset successfully' };
   }
 
@@ -258,6 +337,14 @@ export class AuthService {
       data: { passwordHash },
     });
 
+    await this.prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: this.revokeReasons.passwordChanged,
+      },
+    });
+
     return { message: 'Password changed successfully' };
   }
 
@@ -265,6 +352,8 @@ export class AuthService {
     userId: string,
     role: string,
     ipAddress?: string,
+    deviceInfo?: string,
+    familyId?: string,
   ) {
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, role },
@@ -282,12 +371,32 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: {
         userId,
+        familyId: familyId ?? randomUUID(),
         tokenHash,
+        deviceInfo,
         ipAddress,
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       },
     });
 
     return { accessToken, refreshToken };
+  }
+
+  private async revokeRefreshTokenFamily(
+    userId: string,
+    familyId: string,
+    reason: string,
+  ) {
+    await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        familyId,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+        revokedReason: reason,
+      },
+    });
   }
 }

@@ -25,7 +25,42 @@ export class SubscriptionsService {
     });
   }
 
+  async resolveOrganizationIdForUser(userId: string) {
+    const ownedOrg = await this.prisma.organization.findFirst({
+      where: {
+        ownerId: userId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (ownedOrg) return ownedOrg.id;
+
+    const staffMembership = await this.prisma.staff.findFirst({
+      where: {
+        userId,
+        isActive: true,
+        organization: { deletedAt: null },
+      },
+      select: { organizationId: true },
+    });
+
+    if (!staffMembership) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    return staffMembership.organizationId;
+  }
+
   async getMySubscription(organizationId: string) {
+    const organization = await this.prisma.organization.findFirst({
+      where: {
+        id: organizationId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException('Organization not found');
+
     const sub = await this.prisma.subscription.findFirst({
       where: { organizationId, status: { in: ['ACTIVE', 'TRIALING'] } },
       include: {
@@ -53,31 +88,39 @@ export class SubscriptionsService {
   }
 
   async upgrade(organizationId: string, dto: UpgradeSubscriptionDto) {
+    const organization = await this.prisma.organization.findFirst({
+      where: {
+        id: organizationId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!organization) throw new NotFoundException('Organization not found');
+
     const plan = await this.prisma.subscriptionPlan.findUnique({
       where: { id: dto.planId },
     });
     if (!plan) throw new NotFoundException('Subscription plan not found');
     if (!plan.isActive) throw new BadRequestException('Plan is not active');
 
-    const currentSub = await this.prisma.subscription.findFirst({
-      where: { organizationId, status: { in: ['ACTIVE', 'TRIALING'] } },
-      orderBy: { createdAt: 'desc' },
-    });
+    const now = new Date();
+    const currentPeriodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    if (currentSub) {
-      await this.prisma.subscription.update({
-        where: { id: currentSub.id },
-        data: { status: 'CANCELLED', cancelledAt: new Date() },
-      });
-    }
-
-    const sub = await this.prisma.subscription.create({
-      data: {
+    const sub = await this.prisma.subscription.upsert({
+      where: { organizationId },
+      update: {
+        planId: plan.id,
+        status: 'ACTIVE',
+        currentPeriodStart: now,
+        currentPeriodEnd,
+        cancelledAt: null,
+      },
+      create: {
         organizationId,
         planId: plan.id,
         status: 'ACTIVE',
-        currentPeriodStart: new Date(),
-        currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        currentPeriodStart: now,
+        currentPeriodEnd,
       },
       include: { plan: true },
     });

@@ -9,7 +9,14 @@ import {
   UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiCookieAuth,
+  ApiBody,
+  ApiParam,
+} from '@nestjs/swagger';
 import { BranchesService } from './branches.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
@@ -27,12 +34,28 @@ export class BranchesController {
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Create a branch' })
-  @ApiResponse({ status: 201, description: 'Branch created' })
+  @ApiBody({ type: CreateBranchDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Branch created',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: 'uuid-branch-001',
+          name: 'An Nhien Homestay - Co so Vung Tau',
+          provinceId: 'uuid-prov-002',
+          isActive: true,
+          isListedOnMarketplace: false,
+          createdAt: '2025-05-20T10:00:00.000Z',
+        },
+      },
+    },
+  })
   async create(
     @CurrentUser('id') userId: string,
-    @CurrentUser('role') role: string,
     @Body() dto: CreateBranchDto,
   ) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
@@ -43,9 +66,29 @@ export class BranchesController {
   @Get()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'List branches of current organization' })
-  @ApiResponse({ status: 200, description: 'List of branches' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of branches',
+    schema: {
+      example: {
+        success: true,
+        data: [
+          {
+            id: 'uuid-branch-001',
+            name: 'An Nhien Homestay - Co so Vung Tau',
+            address: '123 Tran Phu, Phuong 1',
+            province: { id: 'uuid-prov-002', name: 'Vung Tau' },
+            isActive: true,
+            isListedOnMarketplace: true,
+            bufferHours: 2,
+            _count: { rooms: 8 },
+          },
+        ],
+      },
+    },
+  })
   async findAll(@CurrentUser('id') userId: string) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
     if (!orgId) throw new UnauthorizedException('No organization found');
@@ -54,9 +97,40 @@ export class BranchesController {
 
   @Get(':id')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Get branch detail' })
-  @ApiResponse({ status: 200, description: 'Branch detail' })
+  @ApiParam({ name: 'id', example: 'uuid-branch-001' })
+  @ApiResponse({
+    status: 200,
+    description: 'Branch detail',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: 'uuid-branch-001',
+          name: 'An Nhien Homestay - Co so Vung Tau',
+          address: '123 Tran Phu, Phuong 1',
+          district: 'TP. Vung Tau',
+          latitude: 10.3461,
+          longitude: 107.084,
+          description: 'Homestay view bien...',
+          amenities: ['wifi', 'pool', 'parking', 'bbq'],
+          checkInTime: '14:00',
+          checkOutTime: '12:00',
+          bufferHours: 2,
+          isListedOnMarketplace: true,
+          images: [
+            {
+              id: 'uuid-img-001',
+              url: 'https://res.cloudinary.com/demo/image/upload/branch/cover.jpg',
+              isCover: true,
+              sortOrder: 1,
+            },
+          ],
+        },
+      },
+    },
+  })
   async findOne(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -69,25 +143,56 @@ export class BranchesController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER', 'BRANCH_MANAGER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Update branch' })
+  @ApiParam({ name: 'id', example: 'uuid-branch-001' })
+  @ApiBody({ type: UpdateBranchDto })
   @ApiResponse({ status: 200, description: 'Branch updated' })
   async update(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
     @Body() dto: UpdateBranchDto,
   ) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
     if (!orgId) throw new UnauthorizedException('No organization found');
-    return this.branchesService.update(id, orgId, dto);
+    return this.branchesService.update(id, orgId, userId, role, dto);
   }
 
   @Patch(':id/marketplace')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Toggle marketplace listing' })
-  @ApiResponse({ status: 200, description: 'Marketplace status updated' })
+  @ApiParam({ name: 'id', example: 'uuid-branch-001' })
+  @ApiBody({ type: MarketplaceToggleDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Marketplace status updated',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: 'uuid-branch-001',
+          isListedOnMarketplace: true,
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Current plan does not allow marketplace listing',
+    schema: {
+      example: {
+        success: false,
+        error: {
+          code: 'PLAN_NOT_ALLOWED',
+          message: 'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
+          statusCode: 403,
+        },
+      },
+    },
+  })
   async toggleMarketplace(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
@@ -101,9 +206,19 @@ export class BranchesController {
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Soft delete branch' })
-  @ApiResponse({ status: 200, description: 'Branch deleted' })
+  @ApiCookieAuth('accessToken')
+  @ApiOperation({ summary: 'Archive branch safely' })
+  @ApiParam({ name: 'id', example: 'uuid-branch-001' })
+  @ApiResponse({
+    status: 200,
+    description: 'Branch archived',
+    schema: {
+      example: {
+        success: true,
+        data: { message: 'Branch has been archived' },
+      },
+    },
+  })
   async remove(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,

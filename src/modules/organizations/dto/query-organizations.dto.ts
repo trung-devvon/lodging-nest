@@ -1,6 +1,6 @@
-import { IsOptional, IsString, IsEnum, IsInt, Min } from 'class-validator';
+import { IsOptional, IsString, IsEnum, IsInt, Min, Max } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { OrganizationStatus } from '@prisma/client';
+import { BusinessType, OrganizationStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 
 export class QueryOrganizationsDto {
@@ -15,6 +15,7 @@ export class QueryOrganizationsDto {
   @Type(() => Number)
   @IsInt()
   @Min(1)
+  @Max(100)
   @IsOptional()
   limit?: number = 20;
 
@@ -22,6 +23,11 @@ export class QueryOrganizationsDto {
   @IsEnum(OrganizationStatus)
   @IsOptional()
   status?: OrganizationStatus;
+
+  @ApiPropertyOptional({ enum: BusinessType, example: 'HOMESTAY' })
+  @IsEnum(BusinessType)
+  @IsOptional()
+  businessType?: BusinessType;
 
   @ApiPropertyOptional()
   @IsString()

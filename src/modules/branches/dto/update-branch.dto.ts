@@ -1,7 +1,9 @@
-import { IsString, IsOptional, IsArray, IsNumber, Min, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsArray, IsNumber, Min, IsBoolean, Matches } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateBranchDto {
+  private static readonly TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
   @ApiPropertyOptional({ example: 'An Nhiên Homestay - Cơ sở Vũng Tàu' })
   @IsString()
   @IsOptional()
@@ -39,11 +41,17 @@ export class UpdateBranchDto {
 
   @ApiPropertyOptional({ example: '14:00' })
   @IsString()
+  @Matches(UpdateBranchDto.TIME_PATTERN, {
+    message: 'checkInTime must be in HH:mm format',
+  })
   @IsOptional()
   checkInTime?: string;
 
   @ApiPropertyOptional({ example: '12:00' })
   @IsString()
+  @Matches(UpdateBranchDto.TIME_PATTERN, {
+    message: 'checkOutTime must be in HH:mm format',
+  })
   @IsOptional()
   checkOutTime?: string;
 

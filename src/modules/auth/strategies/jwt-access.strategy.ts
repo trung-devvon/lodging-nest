@@ -2,10 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { FastifyRequest } from 'fastify';
+import { PrismaService } from '../../../prisma/prisma.service';
 
 @Injectable()
 export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') {
-  constructor() {
+  constructor(private readonly prisma: PrismaService) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (req: FastifyRequest) => req?.cookies?.['accessToken'] ?? null,
@@ -16,6 +17,22 @@ export class JwtAccessStrategy extends PassportStrategy(Strategy, 'jwt-access') 
   }
 
   async validate(payload: { sub: string; role: string }) {
-    return { id: payload.sub, role: payload.role };
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: payload.sub,
+        isActive: true,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        role: true,
+      },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User is inactive or no longer exists');
+    }
+
+    return user;
   }
 }

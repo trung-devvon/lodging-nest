@@ -15,17 +15,28 @@ import { QueryRoomsDto } from './dto/query-rooms.dto';
 export class RoomsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(organizationId: string, branchId: string, dto: CreateRoomDto) {
+  async create(
+    organizationId: string,
+    branchId: string,
+    userId: string,
+    role: string,
+    dto: CreateRoomDto,
+  ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, organizationId, deletedAt: null },
     });
     if (!branch) throw new NotFoundException('Branch not found');
+
+    await this.ensureBranchManagerAccessToBranch(userId, organizationId, role, branchId);
 
     const subscription = await this.prisma.subscription.findFirst({
       where: { organizationId, status: { in: ['ACTIVE', 'TRIALING'] } },
       include: { plan: true },
       orderBy: { createdAt: 'desc' },
     });
+    if (!subscription) {
+      throw new BadRequestException('No active subscription. Please subscribe to a plan first.');
+    }
 
     const roomCount = await this.prisma.room.count({
       where: { branchId, deletedAt: null },
@@ -74,7 +85,7 @@ export class RoomsService {
     if (query.status) where.status = query.status;
     if (query.roomType) where.roomType = query.roomType;
 
-    return this.prisma.room.findMany({
+    const rooms = await this.prisma.room.findMany({
       where,
       include: {
         roomRates: {
@@ -90,6 +101,24 @@ export class RoomsService {
       },
       orderBy: { createdAt: 'asc' },
     });
+
+    return rooms.map((room) => ({
+      id: room.id,
+      name: room.name,
+      roomType: room.roomType,
+      capacity: room.capacity,
+      bedCount: room.bedCount,
+      bedType: room.bedType,
+      status: room.status,
+      bufferHours: room.bufferHours,
+      rates: room.roomRates.map((rate) => ({
+        id: rate.id,
+        label: rate.label,
+        durationHours: rate.durationHours,
+        price: rate.price,
+      })),
+      coverImage: room.roomImages[0] ? { url: room.roomImages[0].url } : null,
+    }));
   }
 
   async findOne(id: string, organizationId: string) {
@@ -108,14 +137,41 @@ export class RoomsService {
       },
     });
     if (!room) throw new NotFoundException('Room not found');
-    return room;
+    return {
+      id: room.id,
+      name: room.name,
+      roomType: room.roomType,
+      capacity: room.capacity,
+      bedCount: room.bedCount,
+      bedType: room.bedType,
+      floorNumber: room.floorNumber,
+      roomAmenities: room.roomAmenities,
+      status: room.status,
+      bufferHours: room.bufferHours,
+      images: room.roomImages,
+      rates: room.roomRates,
+    };
   }
 
-  async update(id: string, organizationId: string, dto: UpdateRoomDto) {
+  async update(
+    id: string,
+    organizationId: string,
+    userId: string,
+    role: string,
+    dto: UpdateRoomDto,
+  ) {
     const room = await this.prisma.room.findFirst({
       where: { id, branch: { organizationId }, deletedAt: null },
+      select: { id: true, branchId: true },
     });
     if (!room) throw new NotFoundException('Room not found');
+
+    await this.ensureBranchManagerAccessToBranch(
+      userId,
+      organizationId,
+      role,
+      room.branchId,
+    );
 
     return this.prisma.room.update({
       where: { id },
@@ -135,11 +191,25 @@ export class RoomsService {
     });
   }
 
-  async updateStatus(id: string, organizationId: string, dto: UpdateRoomStatusDto) {
+  async updateStatus(
+    id: string,
+    organizationId: string,
+    userId: string,
+    role: string,
+    dto: UpdateRoomStatusDto,
+  ) {
     const room = await this.prisma.room.findFirst({
       where: { id, branch: { organizationId }, deletedAt: null },
+      select: { id: true, branchId: true },
     });
     if (!room) throw new NotFoundException('Room not found');
+
+    await this.ensureBranchManagerAccessToBranch(
+      userId,
+      organizationId,
+      role,
+      room.branchId,
+    );
 
     if (dto.status === 'OCCUPIED') {
       throw new BadRequestException('OCCUPIED status is set automatically by the system');
@@ -158,11 +228,28 @@ export class RoomsService {
     });
     if (!room) throw new NotFoundException('Room not found');
 
+    const activeBookingCount = await this.prisma.booking.count({
+      where: {
+        roomId: id,
+        status: {
+          in: ['PENDING', 'CONFIRMED', 'CHECKED_IN'],
+        },
+      },
+    });
+    if (activeBookingCount > 0) {
+      throw new BadRequestException(
+        'Cannot delete room while active bookings still exist',
+      );
+    }
+
     await this.prisma.room.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: {
+        status: RoomStatus.INACTIVE,
+        deletedAt: new Date(),
+      },
     });
-    return { message: 'Room deleted' };
+    return { message: 'Room has been archived' };
   }
 
   async checkAvailability(organizationId: string, branchId: string, checkIn: Date, checkOut: Date) {
@@ -198,5 +285,27 @@ export class RoomsService {
         nextAvailableAt: booking ? booking.checkOut.toISOString() : undefined,
       };
     });
+  }
+
+  private async ensureBranchManagerAccessToBranch(
+    userId: string,
+    organizationId: string,
+    role: string,
+    branchId: string,
+  ) {
+    if (role !== 'BRANCH_MANAGER') return;
+
+    const staff = await this.prisma.staff.findFirst({
+      where: {
+        userId,
+        organizationId,
+        isActive: true,
+      },
+      select: { branchId: true },
+    });
+
+    if (!staff?.branchId || staff.branchId !== branchId) {
+      throw new ForbiddenException('You can only manage rooms in your assigned branch');
+    }
   }
 }

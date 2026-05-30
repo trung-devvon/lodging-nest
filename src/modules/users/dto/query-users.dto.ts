@@ -1,6 +1,6 @@
-import { IsString, IsOptional, IsBoolean, IsInt, Min, Max, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsInt, Min, Max, IsEnum, IsBoolean } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { UserRole } from '@prisma/client';
 
 export class QueryUsersDto {
@@ -29,8 +29,13 @@ export class QueryUsersDto {
   @IsOptional()
   search?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: true })
+  @IsBoolean()
   @IsOptional()
-  @Type(() => String)
-  isActive?: string;
+  @Transform(({ value }) => {
+    if (value === 'true' || value === true) return true;
+    if (value === 'false' || value === false) return false;
+    return value;
+  })
+  isActive?: boolean;
 }

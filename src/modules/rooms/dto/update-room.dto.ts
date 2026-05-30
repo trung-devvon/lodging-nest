@@ -1,6 +1,6 @@
 import { IsString, IsOptional, IsInt, IsEnum, IsArray, Min } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { RoomType, BedType, RoomStatus } from '@prisma/client';
+import { RoomType, BedType } from '@prisma/client';
 
 export class UpdateRoomDto {
   @ApiPropertyOptional({ example: 'Phòng Deluxe Giường Đôi - 101' })
@@ -45,9 +45,4 @@ export class UpdateRoomDto {
   @IsInt()
   @IsOptional()
   bufferHours?: number | null;
-
-  @ApiPropertyOptional({ enum: RoomStatus })
-  @IsEnum(RoomStatus)
-  @IsOptional()
-  status?: RoomStatus;
 }

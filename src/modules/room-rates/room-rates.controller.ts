@@ -9,7 +9,14 @@ import {
   UseGuards,
   UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiCookieAuth,
+  ApiBody,
+  ApiParam,
+} from '@nestjs/swagger';
 import { RoomRatesService } from './room-rates.service';
 import { CreateRoomRateDto } from './dto/create-room-rate.dto';
 import { UpdateRoomRateDto } from './dto/update-room-rate.dto';
@@ -30,24 +37,70 @@ export class RoomRatesController {
   @Post('rooms/:roomId/rates')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER', 'BRANCH_MANAGER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Create a room rate' })
-  @ApiResponse({ status: 201, description: 'Rate created' })
+  @ApiParam({ name: 'roomId', example: 'uuid-room-001' })
+  @ApiBody({ type: CreateRoomRateDto })
+  @ApiResponse({
+    status: 201,
+    description: 'Rate created',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: 'uuid-rate-001',
+          label: '3 gio',
+          durationHours: 3,
+          price: 200000,
+          isActive: true,
+          sortOrder: 1,
+        },
+      },
+    },
+  })
   async create(
     @Param('roomId') roomId: string,
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
     @Body() dto: CreateRoomRateDto,
   ) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
     if (!orgId) throw new UnauthorizedException('No organization found');
-    return this.roomRatesService.create(orgId, roomId, dto);
+    return this.roomRatesService.create(orgId, roomId, userId, role, dto);
   }
 
   @Get('rooms/:roomId/rates')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'List rates of a room' })
-  @ApiResponse({ status: 200, description: 'List of rates' })
+  @ApiParam({ name: 'roomId', example: 'uuid-room-001' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of rates',
+    schema: {
+      example: {
+        success: true,
+        data: [
+          {
+            id: 'uuid-rate-001',
+            label: '3 gio',
+            durationHours: 3,
+            price: 200000,
+            isActive: true,
+            sortOrder: 1,
+          },
+          {
+            id: 'uuid-rate-002',
+            label: 'Qua dem',
+            durationHours: 14,
+            price: 500000,
+            isActive: true,
+            sortOrder: 2,
+          },
+        ],
+      },
+    },
+  })
   async findAll(
     @Param('roomId') roomId: string,
     @CurrentUser('id') userId: string,
@@ -60,29 +113,70 @@ export class RoomRatesController {
   @Patch('rates/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER', 'BRANCH_MANAGER')
-  @ApiBearerAuth()
+  @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Update a rate' })
-  @ApiResponse({ status: 200, description: 'Rate updated' })
+  @ApiParam({ name: 'id', example: 'uuid-rate-001' })
+  @ApiBody({ type: UpdateRoomRateDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Rate updated',
+    schema: {
+      example: {
+        success: true,
+        data: {
+          id: 'uuid-rate-001',
+          label: '3 gio',
+          durationHours: 3,
+          price: 220000,
+          isActive: true,
+          sortOrder: 1,
+        },
+      },
+    },
+  })
   async update(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
+    @CurrentUser('role') role: string,
     @Body() dto: UpdateRoomRateDto,
   ) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
     if (!orgId) throw new UnauthorizedException('No organization found');
-    return this.roomRatesService.update(id, orgId, dto);
+    return this.roomRatesService.update(id, orgId, userId, role, dto);
   }
 
   @Delete('rates/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Delete a rate' })
-  @ApiResponse({ status: 200, description: 'Rate deleted' })
-  async remove(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
+  @ApiCookieAuth('accessToken')
+  @ApiOperation({ summary: 'Delete a room rate safely' })
+  @ApiParam({ name: 'id', example: 'uuid-rate-001' })
+  @ApiResponse({
+    status: 200,
+    description: 'Rate deleted',
+    schema: {
+      example: {
+        success: true,
+        data: { message: 'Room rate deleted' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Rate is still referenced by bookings or pricing rules',
+    schema: {
+      example: {
+        success: false,
+        error: {
+          code: 'BAD_REQUEST',
+          message:
+            'Cannot delete room rate because it is referenced by existing bookings',
+          statusCode: 400,
+        },
+      },
+    },
+  })
+  async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
     const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
     if (!orgId) throw new UnauthorizedException('No organization found');
     return this.roomRatesService.remove(id, orgId);

@@ -23,8 +23,15 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 @ApiTags('Auth')
 @Controller('auth')
 export class AuthController {
-  private readonly COOKIE_OPTIONS = {
+  private readonly ACCESS_COOKIE_OPTIONS = {
     path: '/',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'strict' as const,
+  };
+
+  private readonly REFRESH_COOKIE_OPTIONS = {
+    path: '/api/auth',
     httpOnly: true,
     secure: true,
     sameSite: 'strict' as const,
@@ -32,7 +39,7 @@ export class AuthController {
 
   constructor(private readonly authService: AuthService) {}
 
-  @Post('register')
+  @Post('register-owner')
   @ApiOperation({ summary: 'Register a new organization' })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({ status: 201, description: 'Organization registered successfully' })
@@ -43,7 +50,8 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const ip = req.ip;
-    const result = await this.authService.register(dto, ip);
+    const deviceInfo = this.getDeviceInfo(req);
+    const result = await this.authService.register(dto, ip, deviceInfo);
     this.setAuthCookies(reply, result.accessToken, result.refreshToken);
     return {
       user: {
@@ -68,7 +76,8 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     const ip = req.ip;
-    const result = await this.authService.login(dto, ip);
+    const deviceInfo = this.getDeviceInfo(req);
+    const result = await this.authService.login(dto, ip, deviceInfo);
     this.setAuthCookies(reply, result.accessToken, result.refreshToken);
     return {
       user: {
@@ -91,12 +100,12 @@ export class AuthController {
   ) {
     const token = req.cookies?.['refreshToken'];
     if (!token) {
-      reply.clearCookie('accessToken', { path: '/' });
-      reply.clearCookie('refreshToken', { path: '/' });
+      this.clearAuthCookies(reply);
       throw new UnauthorizedException('Refresh token missing');
     }
     const ip = req.ip;
-    const result = await this.authService.refresh(token, ip);
+    const deviceInfo = this.getDeviceInfo(req);
+    const result = await this.authService.refresh(token, ip, deviceInfo);
     this.setAuthCookies(reply, result.accessToken, result.refreshToken);
     return { message: 'Tokens refreshed' };
   }
@@ -113,8 +122,7 @@ export class AuthController {
     if (token) {
       await this.authService.logout(token);
     }
-    reply.clearCookie('accessToken', { path: '/' });
-    reply.clearCookie('refreshToken', { path: '/' });
+    this.clearAuthCookies(reply);
     return { message: 'Logged out successfully' };
   }
 
@@ -160,12 +168,22 @@ export class AuthController {
     refreshToken: string,
   ) {
     reply.setCookie('accessToken', accessToken, {
-      ...this.COOKIE_OPTIONS,
+      ...this.ACCESS_COOKIE_OPTIONS,
       maxAge: 15 * 60,
     });
     reply.setCookie('refreshToken', refreshToken, {
-      ...this.COOKIE_OPTIONS,
+      ...this.REFRESH_COOKIE_OPTIONS,
       maxAge: 7 * 24 * 60 * 60,
     });
+  }
+
+  private clearAuthCookies(reply: FastifyReply) {
+    reply.clearCookie('accessToken', { path: this.ACCESS_COOKIE_OPTIONS.path });
+    reply.clearCookie('refreshToken', { path: this.REFRESH_COOKIE_OPTIONS.path });
+  }
+
+  private getDeviceInfo(req: FastifyRequest) {
+    const userAgent = req.headers['user-agent'];
+    return typeof userAgent === 'string' ? userAgent : undefined;
   }
 }
