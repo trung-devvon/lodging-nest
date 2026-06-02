@@ -1,6 +1,14 @@
-import { IsString, IsOptional, IsEnum, IsDateString, IsNumber, Min } from 'class-validator';
+import { Prisma } from '@prisma/client';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsDateString,
+  IsBoolean,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PriceAdjustType } from '@prisma/client';
+import { DecimalInput } from '../../../common/validators/decimal-input.decorator';
 
 export class CreateRoomPricingDto {
   @ApiPropertyOptional({ example: null })
@@ -25,15 +33,14 @@ export class CreateRoomPricingDto {
   @IsEnum(PriceAdjustType)
   priceAdjustType: PriceAdjustType;
 
-  @ApiProperty({ example: 50 })
-  @IsNumber()
-  @Min(0)
-  adjustValue: number;
+  @ApiProperty({ type: String, example: '50.00' })
+  @DecimalInput({ maxScale: 2, min: 0 })
+  adjustValue: Prisma.Decimal;
 
-  @ApiPropertyOptional({ example: 280000 })
-  @IsNumber()
+  @ApiPropertyOptional({ type: String, example: '280000.00' })
   @IsOptional()
-  overridePrice?: number;
+  @DecimalInput({ maxScale: 2, min: 0 })
+  overridePrice?: Prisma.Decimal;
 }
 
 export class UpdateRoomPricingDto {
@@ -62,18 +69,18 @@ export class UpdateRoomPricingDto {
   @IsOptional()
   priceAdjustType?: PriceAdjustType;
 
-  @ApiPropertyOptional()
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ type: String, example: '50.00' })
   @IsOptional()
-  adjustValue?: number;
+  @DecimalInput({ maxScale: 2, min: 0 })
+  adjustValue?: Prisma.Decimal;
+
+  @ApiPropertyOptional({ type: String, example: '280000.00' })
+  @IsOptional()
+  @DecimalInput({ maxScale: 2, min: 0 })
+  overridePrice?: Prisma.Decimal;
 
   @ApiPropertyOptional()
-  @IsNumber()
-  @IsOptional()
-  overridePrice?: number;
-
-  @ApiPropertyOptional()
+  @IsBoolean()
   @IsOptional()
   isActive?: boolean;
 }

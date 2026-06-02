@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   UseGuards,
-  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -24,14 +23,18 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { BranchesService } from '../branches/branches.service';
+import { AccessContextService } from '../../common/services/access-context.service';
+import {
+  errorResponseSchema,
+  successResponseSchema,
+} from '../../common/swagger/response-schema.util';
 
 @ApiTags('Room Rates')
 @Controller()
 export class RoomRatesController {
   constructor(
     private readonly roomRatesService: RoomRatesService,
-    private readonly branchesService: BranchesService,
+    private readonly accessContextService: AccessContextService,
   ) {}
 
   @Post('rooms/:roomId/rates')
@@ -44,19 +47,14 @@ export class RoomRatesController {
   @ApiResponse({
     status: 201,
     description: 'Rate created',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-rate-001',
-          label: '3 gio',
-          durationHours: 3,
-          price: 200000,
-          isActive: true,
-          sortOrder: 1,
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-rate-001',
+      label: '3 gio',
+      durationHours: 3,
+      price: '200000.00',
+      isActive: true,
+      sortOrder: 1,
+    }),
   })
   async create(
     @Param('roomId') roomId: string,
@@ -64,8 +62,8 @@ export class RoomRatesController {
     @CurrentUser('role') role: string,
     @Body() dto: CreateRoomRateDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomRatesService.create(orgId, roomId, userId, role, dto);
   }
 
@@ -77,36 +75,31 @@ export class RoomRatesController {
   @ApiResponse({
     status: 200,
     description: 'List of rates',
-    schema: {
-      example: {
-        success: true,
-        data: [
-          {
-            id: 'uuid-rate-001',
-            label: '3 gio',
-            durationHours: 3,
-            price: 200000,
-            isActive: true,
-            sortOrder: 1,
-          },
-          {
-            id: 'uuid-rate-002',
-            label: 'Qua dem',
-            durationHours: 14,
-            price: 500000,
-            isActive: true,
-            sortOrder: 2,
-          },
-        ],
+    schema: successResponseSchema([
+      {
+        id: 'uuid-rate-001',
+        label: '3 gio',
+        durationHours: 3,
+        price: '200000.00',
+        isActive: true,
+        sortOrder: 1,
       },
-    },
+      {
+        id: 'uuid-rate-002',
+        label: 'Qua dem',
+        durationHours: 14,
+        price: '500000.00',
+        isActive: false,
+        sortOrder: 2,
+      },
+    ]),
   })
   async findAll(
     @Param('roomId') roomId: string,
     @CurrentUser('id') userId: string,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomRatesService.findAll(orgId, roomId);
   }
 
@@ -120,19 +113,14 @@ export class RoomRatesController {
   @ApiResponse({
     status: 200,
     description: 'Rate updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-rate-001',
-          label: '3 gio',
-          durationHours: 3,
-          price: 220000,
-          isActive: true,
-          sortOrder: 1,
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-rate-001',
+      label: '3 gio',
+      durationHours: 3,
+      price: '220000.00',
+      isActive: true,
+      sortOrder: 1,
+    }),
   })
   async update(
     @Param('id') id: string,
@@ -140,8 +128,8 @@ export class RoomRatesController {
     @CurrentUser('role') role: string,
     @Body() dto: UpdateRoomRateDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomRatesService.update(id, orgId, userId, role, dto);
   }
 
@@ -149,36 +137,23 @@ export class RoomRatesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ORG_OWNER', 'ORG_MANAGER')
   @ApiCookieAuth('accessToken')
-  @ApiOperation({ summary: 'Delete a room rate safely' })
+  @ApiOperation({ summary: 'Deactivate a room rate safely' })
   @ApiParam({ name: 'id', example: 'uuid-rate-001' })
   @ApiResponse({
     status: 200,
-    description: 'Rate deleted',
-    schema: {
-      example: {
-        success: true,
-        data: { message: 'Room rate deleted' },
-      },
-    },
+    description: 'Rate deactivated',
+    schema: successResponseSchema({
+      message: 'Room rate has been deactivated',
+    }),
   })
   @ApiResponse({
-    status: 400,
-    description: 'Rate is still referenced by bookings or pricing rules',
-    schema: {
-      example: {
-        success: false,
-        error: {
-          code: 'BAD_REQUEST',
-          message:
-            'Cannot delete room rate because it is referenced by existing bookings',
-          statusCode: 400,
-        },
-      },
-    },
+    status: 404,
+    description: 'Room rate not found',
+    schema: errorResponseSchema(404, 'Room rate not found', 'NOT_FOUND'),
   })
   async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomRatesService.remove(id, orgId);
   }
 }

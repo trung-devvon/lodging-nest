@@ -7,9 +7,9 @@ import {
   Body,
   Param,
   Query,
+  Req,
   UseGuards,
   BadRequestException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -20,6 +20,7 @@ import {
   ApiParam,
   ApiQuery,
 } from '@nestjs/swagger';
+import type { FastifyRequest } from 'fastify';
 import { RoomsService } from './rooms.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
@@ -29,14 +30,15 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { BranchesService } from '../branches/branches.service';
+import { AccessContextService } from '../../common/services/access-context.service';
+import { successResponseSchema } from '../../common/swagger/response-schema.util';
 
 @ApiTags('Rooms')
 @Controller()
 export class RoomsController {
   constructor(
     private readonly roomsService: RoomsService,
-    private readonly branchesService: BranchesService,
+    private readonly accessContextService: AccessContextService,
   ) {}
 
   @Post('branches/:branchId/rooms')
@@ -49,19 +51,14 @@ export class RoomsController {
   @ApiResponse({
     status: 201,
     description: 'Room created',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-room-001',
-          name: 'Phong Deluxe Giuong Doi - 101',
-          roomType: 'DELUXE',
-          capacity: 2,
-          status: 'AVAILABLE',
-          createdAt: '2025-05-20T10:30:00.000Z',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-room-001',
+      name: 'Phong Deluxe Giuong Doi - 101',
+      roomType: 'DELUXE',
+      capacity: 2,
+      status: 'AVAILABLE',
+      createdAt: '2025-05-20T10:30:00.000Z',
+    }),
   })
   async create(
     @Param('branchId') branchId: string,
@@ -69,8 +66,8 @@ export class RoomsController {
     @CurrentUser('role') role: string,
     @Body() dto: CreateRoomDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.create(orgId, branchId, userId, role, dto);
   }
 
@@ -84,35 +81,37 @@ export class RoomsController {
   @ApiResponse({
     status: 200,
     description: 'List of rooms',
-    schema: {
-      example: {
-        success: true,
-        data: [
+    schema: successResponseSchema([
+      {
+        id: 'uuid-room-001',
+        name: 'Phong Deluxe Giuong Doi - 101',
+        roomType: 'DELUXE',
+        capacity: 2,
+        bedCount: 1,
+        bedType: 'QUEEN',
+        status: 'AVAILABLE',
+        bufferHours: null,
+        rates: [
           {
-            id: 'uuid-room-001',
-            name: 'Phong Deluxe Giuong Doi - 101',
-            roomType: 'DELUXE',
-            capacity: 2,
-            bedCount: 1,
-            bedType: 'QUEEN',
-            status: 'AVAILABLE',
-            bufferHours: null,
-            rates: [
-              { id: 'uuid-rate-001', label: '3 gio', durationHours: 3, price: 200000 },
-            ],
-            coverImage: { url: 'https://res.cloudinary.com/demo/image/upload/rooms/room101.jpg' },
+            id: 'uuid-rate-001',
+            label: '3 gio',
+            durationHours: 3,
+            price: 200000,
           },
         ],
+        coverImage: {
+          url: 'https://res.cloudinary.com/demo/image/upload/rooms/room101.jpg',
+        },
       },
-    },
+    ]),
   })
   async findAll(
     @Param('branchId') branchId: string,
     @CurrentUser('id') userId: string,
     @Query() query: QueryRoomsDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.findAll(orgId, branchId, query);
   }
 
@@ -121,9 +120,33 @@ export class RoomsController {
   @ApiCookieAuth('accessToken')
   @ApiOperation({ summary: 'Check room availability' })
   @ApiParam({ name: 'branchId', example: 'uuid-branch-001' })
-  @ApiQuery({ name: 'checkIn', required: true, example: '2025-05-25T14:00:00Z' })
-  @ApiQuery({ name: 'checkOut', required: true, example: '2025-05-26T12:00:00Z' })
-  @ApiResponse({ status: 200, description: 'Availability status' })
+  @ApiQuery({
+    name: 'checkIn',
+    required: true,
+    example: '2025-05-25T14:00:00Z',
+  })
+  @ApiQuery({
+    name: 'checkOut',
+    required: true,
+    example: '2025-05-26T12:00:00Z',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Availability status',
+    schema: successResponseSchema([
+      {
+        id: 'uuid-room-001',
+        name: 'Phong Deluxe Giuong Doi - 101',
+        isAvailable: true,
+      },
+      {
+        id: 'uuid-room-002',
+        name: 'Phong Deluxe Giuong Doi - 102',
+        isAvailable: false,
+        nextAvailableAt: '2025-05-26T16:00:00.000Z',
+      },
+    ]),
+  })
   async checkAvailability(
     @Param('branchId') branchId: string,
     @CurrentUser('id') userId: string,
@@ -132,15 +155,20 @@ export class RoomsController {
   ) {
     const checkInDate = new Date(checkIn);
     const checkOutDate = new Date(checkOut);
-    if (Number.isNaN(checkInDate.getTime()) || Number.isNaN(checkOutDate.getTime())) {
-      throw new BadRequestException('checkIn and checkOut must be valid ISO datetime strings');
+    if (
+      Number.isNaN(checkInDate.getTime()) ||
+      Number.isNaN(checkOutDate.getTime())
+    ) {
+      throw new BadRequestException(
+        'checkIn and checkOut must be valid ISO datetime strings',
+      );
     }
     if (checkOutDate <= checkInDate) {
       throw new BadRequestException('checkOut must be later than checkIn');
     }
 
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.checkAvailability(
       orgId,
       branchId,
@@ -157,36 +185,39 @@ export class RoomsController {
   @ApiResponse({
     status: 200,
     description: 'Room detail',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-room-001',
-          name: 'Phong Deluxe Giuong Doi - 101',
-          roomType: 'DELUXE',
-          capacity: 2,
-          bedCount: 1,
-          bedType: 'QUEEN',
-          floorNumber: 1,
-          roomAmenities: ['tv', 'air_conditioner', 'hot_water', 'balcony'],
-          status: 'AVAILABLE',
-          bufferHours: null,
-          images: [
-            { id: 'uuid-img-101', url: 'https://res.cloudinary.com/demo/room101-1.jpg', isCover: true, sortOrder: 1 },
-          ],
-          rates: [
-            { id: 'uuid-rate-001', label: '3 gio', durationHours: 3, price: 200000, isActive: true },
-          ],
+    schema: successResponseSchema({
+      id: 'uuid-room-001',
+      name: 'Phong Deluxe Giuong Doi - 101',
+      roomType: 'DELUXE',
+      capacity: 2,
+      bedCount: 1,
+      bedType: 'QUEEN',
+      floorNumber: 1,
+      roomAmenities: ['tv', 'air_conditioner', 'hot_water', 'balcony'],
+      status: 'AVAILABLE',
+      bufferHours: null,
+      images: [
+        {
+          id: 'uuid-img-101',
+          url: 'https://res.cloudinary.com/demo/room101-1.jpg',
+          isCover: true,
+          sortOrder: 1,
         },
-      },
-    },
+      ],
+      rates: [
+        {
+          id: 'uuid-rate-001',
+          label: '3 gio',
+          durationHours: 3,
+          price: 200000,
+          isActive: true,
+        },
+      ],
+    }),
   })
-  async findOne(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+  async findOne(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.findOne(id, orgId);
   }
 
@@ -197,15 +228,30 @@ export class RoomsController {
   @ApiOperation({ summary: 'Update room' })
   @ApiParam({ name: 'id', example: 'uuid-room-001' })
   @ApiBody({ type: UpdateRoomDto })
-  @ApiResponse({ status: 200, description: 'Room updated' })
+  @ApiResponse({
+    status: 200,
+    description: 'Room updated',
+    schema: successResponseSchema({
+      id: 'uuid-room-001',
+      name: 'Phong Deluxe Giuong Doi - 101',
+      roomType: 'DELUXE',
+      capacity: 2,
+      bedCount: 1,
+      bedType: 'QUEEN',
+      floorNumber: 1,
+      roomAmenities: ['tv', 'air_conditioner', 'balcony'],
+      status: 'AVAILABLE',
+      bufferHours: null,
+    }),
+  })
   async update(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
     @Body() dto: UpdateRoomDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.update(id, orgId, userId, role, dto);
   }
 
@@ -216,16 +262,32 @@ export class RoomsController {
   @ApiOperation({ summary: 'Change room status' })
   @ApiParam({ name: 'id', example: 'uuid-room-001' })
   @ApiBody({ type: UpdateRoomStatusDto })
-  @ApiResponse({ status: 200, description: 'Room status updated' })
+  @ApiResponse({
+    status: 200,
+    description: 'Room status updated',
+    schema: successResponseSchema({
+      id: 'uuid-room-001',
+      name: 'Phong Deluxe Giuong Doi - 101',
+      status: 'MAINTENANCE',
+    }),
+  })
   async updateStatus(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
+    @Req() request: FastifyRequest,
     @Body() dto: UpdateRoomStatusDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
-    return this.roomsService.updateStatus(id, orgId, userId, role, dto);
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
+    return this.roomsService.updateStatus(
+      id,
+      orgId,
+      userId,
+      role,
+      dto,
+      request.ip,
+    );
   }
 
   @Delete('rooms/:id')
@@ -237,19 +299,13 @@ export class RoomsController {
   @ApiResponse({
     status: 200,
     description: 'Room archived',
-    schema: {
-      example: {
-        success: true,
-        data: { message: 'Room has been archived' },
-      },
-    },
+    schema: successResponseSchema({
+      message: 'Room has been archived',
+    }),
   })
-  async remove(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+  async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.roomsService.remove(id, orgId);
   }
 }

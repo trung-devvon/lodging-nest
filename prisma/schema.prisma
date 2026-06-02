@@ -34,6 +34,7 @@ enum BusinessType {
 
 enum OrganizationStatus {
   PENDING_APPROVAL
+  ACTIVE_FREE_TRIAL
   ACTIVE
   SUSPENDED
   TERMINATED
@@ -155,23 +156,25 @@ enum NotificationType {
 // ─────────────────────────────────────────────
 
 model User {
-  id                  String    @id @default(uuid())
-  email               String    @unique
-  passwordHash        String
-  phone               String?
-  role                UserRole
-  isActive            Boolean   @default(true)
-  isEmailVerified     Boolean   @default(false)
-  lastLoginAt         DateTime?
-  failedLoginCount    Int       @default(0)
-  lockedUntil         DateTime?
-  resetTokenHash      String?   @unique
-  resetTokenExpiresAt DateTime?
-  twoFactorEnabled    Boolean   @default(false)
-  twoFactorSecret     String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  deletedAt           DateTime?
+  id                   String    @id @default(uuid())
+  email                String    @unique
+  passwordHash         String
+  phone                String?
+  role                 UserRole
+  isActive             Boolean   @default(true)
+  isEmailVerified      Boolean   @default(false)
+  emailVerifyTokenHash String?   @unique
+  emailVerifyExpiresAt DateTime?
+  lastLoginAt          DateTime?
+  failedLoginCount     Int       @default(0)
+  lockedUntil          DateTime?
+  resetTokenHash       String?   @unique
+  resetTokenExpiresAt  DateTime?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret      String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
 
   // Relations
   ownedOrganizations Organization[] @relation("OrgOwner")
@@ -204,6 +207,7 @@ model Organization {
   staffMembers  Staff[]
   guestProfiles GuestProfile[]
   subscriptions Subscription[]
+  auditLogs     AuditLog[]
 
   @@map("organizations")
 }
@@ -569,19 +573,24 @@ model Notification {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorUserId String?
-  actorIp     String
-  action      String
-  targetTable String
-  targetId    String
-  oldValue    Json?
-  newValue    Json?
-  createdAt   DateTime @default(now())
+  id             String   @id @default(uuid())
+  organizationId String?
+  actorUserId    String?
+  actorIp        String?
+  action         String
+  targetTable    String
+  targetId       String
+  oldValue       Json?
+  newValue       Json?
+  createdAt      DateTime @default(now())
 
   // Relations
-  actorUser User? @relation(fields: [actorUserId], references: [id])
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  actorUser    User?         @relation(fields: [actorUserId], references: [id])
 
+  @@index([organizationId, createdAt])
+  @@index([action, createdAt])
+  @@index([targetTable, targetId, createdAt])
   @@map("audit_logs")
 }
 

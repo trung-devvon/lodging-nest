@@ -3,7 +3,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { OrganizationStatus } from '@prisma/client';
 
 export class UpdateOrgStatusDto {
-  @ApiProperty({ enum: OrganizationStatus, example: 'ACTIVE' })
+  @ApiProperty({ enum: OrganizationStatus, example: 'PENDING_APPROVAL' })
   @IsEnum(OrganizationStatus)
   status: OrganizationStatus;
 }

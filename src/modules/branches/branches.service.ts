@@ -5,13 +5,17 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AccessContextService } from '../../common/services/access-context.service';
 import { CreateBranchDto } from './dto/create-branch.dto';
 import { UpdateBranchDto } from './dto/update-branch.dto';
 import { MarketplaceToggleDto } from './dto/marketplace-toggle.dto';
 
 @Injectable()
 export class BranchesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessContextService: AccessContextService,
+  ) {}
 
   async create(organizationId: string, dto: CreateBranchDto) {
     const organization = await this.prisma.organization.findFirst({
@@ -37,7 +41,9 @@ export class BranchesService {
     });
 
     if (!subscription) {
-      throw new BadRequestException('No active subscription. Please subscribe to a plan first.');
+      throw new BadRequestException(
+        'No active subscription. Please subscribe to a plan first.',
+      );
     }
 
     const branchCount = await this.prisma.branch.count({
@@ -122,20 +128,13 @@ export class BranchesService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
-    if (role === 'BRANCH_MANAGER') {
-      const staff = await this.prisma.staff.findFirst({
-        where: {
-          userId,
-          organizationId,
-          isActive: true,
-        },
-        select: { branchId: true },
-      });
-
-      if (!staff?.branchId || staff.branchId !== id) {
-        throw new ForbiddenException('You can only update your assigned branch');
-      }
-    }
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
+      userId,
+      organizationId,
+      role,
+      id,
+      'this branch',
+    );
 
     return this.prisma.branch.update({
       where: { id },
@@ -155,7 +154,11 @@ export class BranchesService {
     });
   }
 
-  async toggleMarketplace(id: string, organizationId: string, dto: MarketplaceToggleDto) {
+  async toggleMarketplace(
+    id: string,
+    organizationId: string,
+    dto: MarketplaceToggleDto,
+  ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id, organizationId, deletedAt: null },
     });
@@ -171,7 +174,8 @@ export class BranchesService {
       if (!subscription || !subscription.plan.canListOnMarketplace) {
         throw new ForbiddenException({
           code: 'PLAN_NOT_ALLOWED',
-          message: 'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
+          message:
+            'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
         });
       }
     }
@@ -230,20 +234,6 @@ export class BranchesService {
   }
 
   async getOrganizationIdFromUser(userId: string): Promise<string | null> {
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        userId,
-        isActive: true,
-        organization: { deletedAt: null },
-      },
-      select: { organizationId: true },
-    });
-    if (staff?.organizationId) return staff.organizationId;
-
-    const org = await this.prisma.organization.findFirst({
-      where: { ownerId: userId, deletedAt: null },
-      select: { id: true },
-    });
-    return org?.id ?? null;
+    return this.accessContextService.getOrganizationIdFromUser(userId);
   }
 }

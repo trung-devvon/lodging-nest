@@ -1,6 +1,16 @@
-import { IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Matches,
+  Min,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { TaskType } from '@prisma/client';
+import { TaskStatus, TaskType } from '@prisma/client';
+import { Type } from 'class-transformer';
 
 export class CreateHousekeepingDto {
   @ApiProperty({ example: 'uuid-room-001' })
@@ -27,6 +37,9 @@ export class CreateHousekeepingDto {
 
   @ApiPropertyOptional({ example: '10:00' })
   @IsString()
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, {
+    message: 'scheduledTime must be in HH:mm format',
+  })
   @IsOptional()
   scheduledTime?: string;
 
@@ -37,8 +50,15 @@ export class CreateHousekeepingDto {
 }
 
 export class UpdateHousekeepingStatusDto {
-  @ApiProperty({ enum: ['PENDING', 'IN_PROGRESS', 'DONE'], example: 'IN_PROGRESS' })
-  @IsEnum(['PENDING', 'IN_PROGRESS', 'DONE'] as const)
+  @ApiProperty({
+    enum: [TaskStatus.PENDING, TaskStatus.IN_PROGRESS, TaskStatus.DONE],
+    example: TaskStatus.IN_PROGRESS,
+  })
+  @IsEnum({
+    PENDING: TaskStatus.PENDING,
+    IN_PROGRESS: TaskStatus.IN_PROGRESS,
+    DONE: TaskStatus.DONE,
+  })
   status: 'PENDING' | 'IN_PROGRESS' | 'DONE';
 }
 
@@ -60,12 +80,27 @@ export class QueryHousekeepingDto {
   date?: string;
 
   @ApiPropertyOptional({ example: 'PENDING' })
-  @IsString()
+  @IsEnum(TaskStatus)
   @IsOptional()
-  status?: string;
+  status?: TaskStatus;
 
   @ApiPropertyOptional({ example: 'uuid-staff-002' })
   @IsString()
   @IsOptional()
   assignedToStaffId?: string;
+
+  @ApiPropertyOptional({ example: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page?: number = 1;
+
+  @ApiPropertyOptional({ example: 20 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  limit?: number = 20;
 }

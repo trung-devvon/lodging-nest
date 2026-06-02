@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   UseGuards,
-  UnauthorizedException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -25,11 +24,19 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AccessContextService } from '../../common/services/access-context.service';
+import {
+  errorResponseSchema,
+  successResponseSchema,
+} from '../../common/swagger/response-schema.util';
 
 @ApiTags('Branches')
 @Controller('branches')
 export class BranchesController {
-  constructor(private readonly branchesService: BranchesService) {}
+  constructor(
+    private readonly branchesService: BranchesService,
+    private readonly accessContextService: AccessContextService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -40,26 +47,21 @@ export class BranchesController {
   @ApiResponse({
     status: 201,
     description: 'Branch created',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-branch-001',
-          name: 'An Nhien Homestay - Co so Vung Tau',
-          provinceId: 'uuid-prov-002',
-          isActive: true,
-          isListedOnMarketplace: false,
-          createdAt: '2025-05-20T10:00:00.000Z',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-branch-001',
+      name: 'An Nhien Homestay - Co so Vung Tau',
+      provinceId: 'uuid-prov-002',
+      isActive: true,
+      isListedOnMarketplace: false,
+      createdAt: '2025-05-20T10:00:00.000Z',
+    }),
   })
   async create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateBranchDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.create(orgId, dto);
   }
 
@@ -71,27 +73,22 @@ export class BranchesController {
   @ApiResponse({
     status: 200,
     description: 'List of branches',
-    schema: {
-      example: {
-        success: true,
-        data: [
-          {
-            id: 'uuid-branch-001',
-            name: 'An Nhien Homestay - Co so Vung Tau',
-            address: '123 Tran Phu, Phuong 1',
-            province: { id: 'uuid-prov-002', name: 'Vung Tau' },
-            isActive: true,
-            isListedOnMarketplace: true,
-            bufferHours: 2,
-            _count: { rooms: 8 },
-          },
-        ],
+    schema: successResponseSchema([
+      {
+        id: 'uuid-branch-001',
+        name: 'An Nhien Homestay - Co so Vung Tau',
+        address: '123 Tran Phu, Phuong 1',
+        province: { id: 'uuid-prov-002', name: 'Vung Tau' },
+        isActive: true,
+        isListedOnMarketplace: true,
+        bufferHours: 2,
+        _count: { rooms: 8 },
       },
-    },
+    ]),
   })
   async findAll(@CurrentUser('id') userId: string) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.findAll(orgId);
   }
 
@@ -103,40 +100,32 @@ export class BranchesController {
   @ApiResponse({
     status: 200,
     description: 'Branch detail',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-branch-001',
-          name: 'An Nhien Homestay - Co so Vung Tau',
-          address: '123 Tran Phu, Phuong 1',
-          district: 'TP. Vung Tau',
-          latitude: 10.3461,
-          longitude: 107.084,
-          description: 'Homestay view bien...',
-          amenities: ['wifi', 'pool', 'parking', 'bbq'],
-          checkInTime: '14:00',
-          checkOutTime: '12:00',
-          bufferHours: 2,
-          isListedOnMarketplace: true,
-          images: [
-            {
-              id: 'uuid-img-001',
-              url: 'https://res.cloudinary.com/demo/image/upload/branch/cover.jpg',
-              isCover: true,
-              sortOrder: 1,
-            },
-          ],
+    schema: successResponseSchema({
+      id: 'uuid-branch-001',
+      name: 'An Nhien Homestay - Co so Vung Tau',
+      address: '123 Tran Phu, Phuong 1',
+      district: 'TP. Vung Tau',
+      latitude: 10.3461,
+      longitude: 107.084,
+      description: 'Homestay view bien...',
+      amenities: ['wifi', 'pool', 'parking', 'bbq'],
+      checkInTime: '14:00',
+      checkOutTime: '12:00',
+      bufferHours: 2,
+      isListedOnMarketplace: true,
+      images: [
+        {
+          id: 'uuid-img-001',
+          url: 'https://res.cloudinary.com/demo/image/upload/branch/cover.jpg',
+          isCover: true,
+          sortOrder: 1,
         },
-      },
-    },
+      ],
+    }),
   })
-  async findOne(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+  async findOne(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.findOne(id, orgId);
   }
 
@@ -147,15 +136,30 @@ export class BranchesController {
   @ApiOperation({ summary: 'Update branch' })
   @ApiParam({ name: 'id', example: 'uuid-branch-001' })
   @ApiBody({ type: UpdateBranchDto })
-  @ApiResponse({ status: 200, description: 'Branch updated' })
+  @ApiResponse({
+    status: 200,
+    description: 'Branch updated',
+    schema: successResponseSchema({
+      id: 'uuid-branch-001',
+      name: 'An Nhien Homestay - Co so Vung Tau',
+      address: '123 Tran Phu, Phuong 1',
+      district: 'TP. Vung Tau',
+      description: 'Homestay view bien...',
+      amenities: ['wifi', 'pool', 'parking'],
+      checkInTime: '14:00',
+      checkOutTime: '12:00',
+      bufferHours: 2,
+      isActive: true,
+    }),
+  })
   async update(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('role') role: string,
     @Body() dto: UpdateBranchDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.update(id, orgId, userId, role, dto);
   }
 
@@ -169,37 +173,27 @@ export class BranchesController {
   @ApiResponse({
     status: 200,
     description: 'Marketplace status updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-branch-001',
-          isListedOnMarketplace: true,
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-branch-001',
+      isListedOnMarketplace: true,
+    }),
   })
   @ApiResponse({
     status: 403,
     description: 'Current plan does not allow marketplace listing',
-    schema: {
-      example: {
-        success: false,
-        error: {
-          code: 'PLAN_NOT_ALLOWED',
-          message: 'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
-          statusCode: 403,
-        },
-      },
-    },
+    schema: errorResponseSchema(
+      403,
+      'Goi hien tai khong ho tro dang len marketplace. Vui long nang cap goi.',
+      'PLAN_NOT_ALLOWED',
+    ),
   })
   async toggleMarketplace(
     @Param('id') id: string,
     @CurrentUser('id') userId: string,
     @Body() dto: MarketplaceToggleDto,
   ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.toggleMarketplace(id, orgId, dto);
   }
 
@@ -212,19 +206,13 @@ export class BranchesController {
   @ApiResponse({
     status: 200,
     description: 'Branch archived',
-    schema: {
-      example: {
-        success: true,
-        data: { message: 'Branch has been archived' },
-      },
-    },
+    schema: successResponseSchema({
+      message: 'Branch has been archived',
+    }),
   })
-  async remove(
-    @Param('id') id: string,
-    @CurrentUser('id') userId: string,
-  ) {
-    const orgId = await this.branchesService.getOrganizationIdFromUser(userId);
-    if (!orgId) throw new UnauthorizedException('No organization found');
+  async remove(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    const orgId =
+      await this.accessContextService.getOrganizationIdOrThrow(userId);
     return this.branchesService.remove(id, orgId);
   }
 }

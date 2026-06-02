@@ -1,0 +1,1 @@
+ALTER TYPE "OrganizationStatus" ADD VALUE 'ACTIVE_FREE_TRIAL';

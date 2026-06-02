@@ -1,4 +1,12 @@
-import { IsString, IsOptional, IsEnum, IsBoolean } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsBoolean,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '@prisma/client';
 
@@ -24,6 +32,9 @@ export class UpdateProvinceDto {
   isActive?: boolean;
 
   @ApiPropertyOptional({ example: 6 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   @IsOptional()
   sortOrder?: number;
 }

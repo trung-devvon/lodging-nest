@@ -4,8 +4,11 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { EmailService } from '../../common/services/email.service';
+import { AccessContextService } from '../../common/services/access-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import * as argon2 from 'argon2';
 import { randomBytes, createHash, randomUUID } from 'crypto';
@@ -17,14 +20,18 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   private readonly accessTokenSecret: string;
+  private readonly emailVerificationTtlMs = 24 * 60 * 60 * 1000;
   private readonly maxFailedAttempts = 5;
   private readonly lockoutMinutes = 15;
+  private readonly passwordResetTtlMs = 60 * 60 * 1000;
   private readonly revokeReasons = {
     rotated: 'ROTATED',
     logout: 'LOGOUT',
     reuseDetected: 'REUSE_DETECTED',
     inactiveUser: 'INACTIVE_USER',
+    inactiveOrganization: 'INACTIVE_ORGANIZATION',
     passwordChanged: 'PASSWORD_CHANGED',
     passwordReset: 'PASSWORD_RESET',
   } as const;
@@ -32,6 +39,8 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly emailService: EmailService,
+    private readonly accessContextService: AccessContextService,
   ) {
     this.accessTokenSecret = process.env.JWT_ACCESS_SECRET ?? 'access-secret';
   }
@@ -58,7 +67,9 @@ export class AuthService {
         where: { name: 'LU_HANH' },
       });
       if (!defaultPlan) {
-        throw new BadRequestException('Default subscription plan not found. Run seed first.');
+        throw new BadRequestException(
+          'Default subscription plan not found. Run seed first.',
+        );
       }
 
       const newUser = await tx.user.create({
@@ -77,7 +88,7 @@ export class AuthService {
           slug: dto.slug,
           businessType: (dto.businessType as any) ?? 'HOMESTAY',
           taxCode: dto.taxCode,
-          status: 'PENDING_APPROVAL',
+          status: 'ACTIVE_FREE_TRIAL',
         },
       });
 
@@ -94,7 +105,13 @@ export class AuthService {
       return newUser;
     });
 
-    const tokens = await this.generateTokens(user.id, user.role, ipAddress, deviceInfo);
+    const tokens = await this.generateTokens(
+      user.id,
+      user.role,
+      ipAddress,
+      deviceInfo,
+    );
+    await this.issueEmailVerification(user.id, user.email, dto.name);
     return { user, ...tokens };
   }
 
@@ -149,7 +166,14 @@ export class AuthService {
       data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: new Date() },
     });
 
-    const tokens = await this.generateTokens(user.id, user.role, ipAddress, deviceInfo);
+    await this.assertWorkspaceAccessAllowed(user.id, user.role);
+
+    const tokens = await this.generateTokens(
+      user.id,
+      user.role,
+      ipAddress,
+      deviceInfo,
+    );
     return { user, ...tokens };
   }
 
@@ -183,6 +207,25 @@ export class AuthService {
         this.revokeReasons.inactiveUser,
       );
       throw new UnauthorizedException('User is inactive');
+    }
+
+    try {
+      await this.assertWorkspaceAccessAllowed(
+        storedToken.user.id,
+        storedToken.user.role,
+      );
+    } catch (error) {
+      await this.revokeRefreshTokenFamily(
+        storedToken.userId,
+        storedToken.familyId,
+        this.revokeReasons.inactiveOrganization,
+      );
+
+      if (error instanceof ForbiddenException) {
+        throw new UnauthorizedException('Organization is not active');
+      }
+
+      throw error;
     }
 
     const newRefreshToken = randomBytes(48).toString('hex');
@@ -238,6 +281,18 @@ export class AuthService {
     };
   }
 
+  private async assertWorkspaceAccessAllowed(userId: string, role: string) {
+    try {
+      await this.accessContextService.ensureWorkspaceAccessOrThrow(userId, role);
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        throw new ForbiddenException('Organization is not active');
+      }
+
+      throw error;
+    }
+  }
+
   async logout(refreshToken: string) {
     if (!refreshToken) return;
 
@@ -268,12 +323,68 @@ export class AuthService {
       where: { id: user.id },
       data: {
         resetTokenHash,
-        resetTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+        resetTokenExpiresAt: new Date(Date.now() + this.passwordResetTtlMs),
+      },
+    });
+
+    await this.sendResetPasswordEmail(user.email, resetToken);
+
+    return {
+      message: 'If the email exists, a reset link has been sent',
+    };
+  }
+
+  async verifyEmail(token: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+    const user = await this.prisma.user.findFirst({
+      where: {
+        emailVerifyTokenHash: tokenHash,
+        emailVerifyExpiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        emailVerifyTokenHash: null,
+        emailVerifyExpiresAt: null,
       },
     });
 
     return {
-      message: 'If the email exists, a reset link has been sent',
+      message: 'Email has been verified successfully',
+    };
+  }
+
+  async resendVerificationEmail(email: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.toLowerCase() },
+    });
+
+    if (!user || user.isEmailVerified) {
+      return {
+        message: 'If the email exists, a verification link has been sent',
+      };
+    }
+
+    const ownerOrganization = await this.prisma.organization.findFirst({
+      where: { ownerId: user.id },
+      select: { name: true },
+    });
+
+    await this.issueEmailVerification(
+      user.id,
+      user.email,
+      ownerOrganization?.name ?? 'your account',
+    );
+
+    return {
+      message: 'If the email exists, a verification link has been sent',
     };
   }
 
@@ -364,9 +475,7 @@ export class AuthService {
     );
 
     const refreshToken = randomBytes(48).toString('hex');
-    const tokenHash = createHash('sha256')
-      .update(refreshToken)
-      .digest('hex');
+    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
 
     await this.prisma.refreshToken.create({
       data: {
@@ -398,5 +507,55 @@ export class AuthService {
         revokedReason: reason,
       },
     });
+  }
+
+  private async issueEmailVerification(
+    userId: string,
+    email: string,
+    organizationName: string,
+  ) {
+    const verificationToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256')
+      .update(verificationToken)
+      .digest('hex');
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        emailVerifyTokenHash: tokenHash,
+        emailVerifyExpiresAt: new Date(
+          Date.now() + this.emailVerificationTtlMs,
+        ),
+      },
+    });
+
+    try {
+      await this.emailService.sendVerificationEmail({
+        email,
+        organizationName,
+        token: verificationToken,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Unable to send verification email to ${email}: ${this.formatError(error)}`,
+      );
+    }
+  }
+
+  private async sendResetPasswordEmail(email: string, resetToken: string) {
+    try {
+      await this.emailService.sendResetPasswordEmail({
+        email,
+        token: resetToken,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Unable to send password reset email to ${email}: ${this.formatError(error)}`,
+      );
+    }
+  }
+
+  private formatError(error: unknown) {
+    return error instanceof Error ? error.message : 'Unknown error';
   }
 }

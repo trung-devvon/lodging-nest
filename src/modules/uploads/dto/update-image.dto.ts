@@ -1,12 +1,22 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateImageDto {
-  @ApiProperty({ required: false })
+  @ApiPropertyOptional({ example: true })
+  @IsOptional()
+  @IsBoolean()
   isCover?: boolean;
 
-  @ApiProperty({ required: false })
+  @ApiPropertyOptional({ example: 1, minimum: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
   sortOrder?: number;
 
-  @ApiProperty({ required: false })
+  @ApiPropertyOptional({ example: 'Ho boi tang thuong' })
+  @IsOptional()
+  @IsString()
   altText?: string;
 }

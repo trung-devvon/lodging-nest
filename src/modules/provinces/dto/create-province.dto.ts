@@ -1,3 +1,4 @@
+import { Type } from 'class-transformer';
 import { IsString, IsOptional, IsEnum, IsInt, Min } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '@prisma/client';
@@ -16,6 +17,7 @@ export class CreateProvinceDto {
   region: Region;
 
   @ApiPropertyOptional({ example: 6 })
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   @IsOptional()

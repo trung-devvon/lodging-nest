@@ -1,8 +1,3 @@
-ALTER TABLE "subscriptions"
-ADD CONSTRAINT "subscriptions_organizationId_key" UNIQUE ("organizationId");
-
-CREATE UNIQUE INDEX "refresh_tokens_tokenHash_key" ON "refresh_tokens"("tokenHash");
-
 ALTER TABLE "refresh_tokens"
 ADD COLUMN "familyId" TEXT,
 ADD COLUMN "revokedReason" TEXT,

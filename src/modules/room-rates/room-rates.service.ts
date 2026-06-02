@@ -1,16 +1,15 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AccessContextService } from '../../common/services/access-context.service';
 import { CreateRoomRateDto } from './dto/create-room-rate.dto';
 import { UpdateRoomRateDto } from './dto/update-room-rate.dto';
 
 @Injectable()
 export class RoomRatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessContextService: AccessContextService,
+  ) {}
 
   async create(
     organizationId: string,
@@ -29,11 +28,12 @@ export class RoomRatesService {
     });
     if (!room) throw new NotFoundException('Room not found');
 
-    await this.ensureBranchManagerAccessToBranch(
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
       userId,
       organizationId,
       role,
       room.branchId,
+      'room rates',
     );
 
     return this.prisma.roomRate.create({
@@ -95,11 +95,12 @@ export class RoomRatesService {
     });
     if (!rate) throw new NotFoundException('Room rate not found');
 
-    await this.ensureBranchManagerAccessToBranch(
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
       userId,
       organizationId,
       role,
       rate.room.branchId,
+      'room rates',
     );
 
     return this.prisma.roomRate.update({
@@ -125,48 +126,10 @@ export class RoomRatesService {
     });
     if (!rate) throw new NotFoundException('Room rate not found');
 
-    const [bookingCount, pricingCount] = await Promise.all([
-      this.prisma.booking.count({ where: { rateId: id } }),
-      this.prisma.roomPricing.count({ where: { rateId: id } }),
-    ]);
-
-    if (bookingCount > 0) {
-      throw new BadRequestException(
-        'Cannot delete room rate because it is referenced by existing bookings',
-      );
-    }
-
-    if (pricingCount > 0) {
-      throw new BadRequestException(
-        'Cannot delete room rate because it is referenced by room pricing rules',
-      );
-    }
-
-    await this.prisma.roomRate.delete({ where: { id } });
-    return { message: 'Room rate deleted' };
-  }
-
-  private async ensureBranchManagerAccessToBranch(
-    userId: string,
-    organizationId: string,
-    role: string,
-    branchId: string,
-  ) {
-    if (role !== 'BRANCH_MANAGER') return;
-
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        userId,
-        organizationId,
-        isActive: true,
-      },
-      select: { branchId: true },
+    await this.prisma.roomRate.update({
+      where: { id },
+      data: { isActive: false },
     });
-
-    if (!staff?.branchId || staff.branchId !== branchId) {
-      throw new ForbiddenException(
-        'You can only manage room rates in your assigned branch',
-      );
-    }
+    return { message: 'Room rate has been deactivated' };
   }
 }

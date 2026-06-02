@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
+import { CommonModule } from '../../common/common.module';
 import { UploadController } from './upload.controller';
 import { UploadService } from './upload.service';
-import { BranchesModule } from '../branches/branches.module';
 
 @Module({
-  imports: [BranchesModule],
+  imports: [CommonModule],
   controllers: [UploadController],
   providers: [UploadService],
   exports: [UploadService],

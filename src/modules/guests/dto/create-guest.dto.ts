@@ -1,4 +1,11 @@
-import { IsString, IsOptional, IsEmail, IsEnum, IsDateString, IsArray } from 'class-validator';
+import {
+  IsArray,
+  IsDateString,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Gender } from '@prisma/client';
 
@@ -43,6 +50,7 @@ export class CreateGuestDto {
 
   @ApiPropertyOptional({ example: ['VIP'] })
   @IsArray()
+  @IsString({ each: true })
   @IsOptional()
   tags?: string[];
 }

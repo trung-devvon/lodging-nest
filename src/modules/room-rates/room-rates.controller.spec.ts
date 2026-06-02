@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RoomRatesController } from './room-rates.controller';
 import { RoomRatesService } from './room-rates.service';
-import { BranchesService } from '../branches/branches.service';
+import { AccessContextService } from '../../common/services/access-context.service';
 
 describe('RoomRatesController', () => {
   let controller: RoomRatesController;
@@ -15,7 +15,7 @@ describe('RoomRatesController', () => {
           useValue: {},
         },
         {
-          provide: BranchesService,
+          provide: AccessContextService,
           useValue: {},
         },
       ],

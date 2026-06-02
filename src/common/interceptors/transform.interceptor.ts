@@ -24,8 +24,20 @@ export class TransformInterceptor<T>
     return next.handle().pipe(
       map((data) => {
         if (data && typeof data === 'object' && 'meta' in data) {
-          const { meta, ...rest } = data;
-          return { success: true, data: rest, meta } as SuccessResponse<T>;
+          const { meta, ...rest } = data as Record<string, unknown>;
+          if ('data' in rest && Object.keys(rest).length === 1) {
+            return {
+              success: true,
+              data: rest.data as T,
+              meta: meta as SuccessResponse<T>['meta'],
+            };
+          }
+
+          return {
+            success: true,
+            data: rest as T,
+            meta: meta as SuccessResponse<T>['meta'],
+          };
         }
         return { success: true, data } as SuccessResponse<T>;
       }),

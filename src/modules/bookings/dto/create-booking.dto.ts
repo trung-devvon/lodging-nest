@@ -1,6 +1,15 @@
-import { IsString, IsInt, IsNumber, IsOptional, IsDateString, IsEnum, Min } from 'class-validator';
+import { Prisma } from '@prisma/client';
+import {
+  IsString,
+  IsInt,
+  IsOptional,
+  IsDateString,
+  IsEnum,
+  Min,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BookingSource } from '@prisma/client';
+import { DecimalInput } from '../../../common/validators/decimal-input.decorator';
 
 export class CreateBookingDto {
   @ApiProperty({ example: 'uuid-room-001' })
@@ -34,17 +43,18 @@ export class CreateBookingDto {
   @IsOptional()
   numChildren?: number;
 
-  @ApiPropertyOptional({ example: 200000 })
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ type: String, example: '200000.00' })
   @IsOptional()
-  depositAmount?: number;
+  @DecimalInput({ maxScale: 2, min: 0 })
+  depositAmount?: Prisma.Decimal;
 
   @ApiProperty({ enum: BookingSource, example: 'WALK_IN' })
   @IsEnum(BookingSource)
   source: BookingSource;
 
-  @ApiPropertyOptional({ example: 'Khách yêu cầu phòng tầng cao, không hút thuốc' })
+  @ApiPropertyOptional({
+    example: 'Khách yêu cầu phòng tầng cao, không hút thuốc',
+  })
   @IsString()
   @IsOptional()
   note?: string;

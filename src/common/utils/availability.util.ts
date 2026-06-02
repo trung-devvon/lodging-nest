@@ -1,4 +1,5 @@
 import { PrismaService } from '../../prisma/prisma.service';
+import { OccupancyService } from '../services/occupancy.service';
 
 export async function isRoomAvailable(
   prisma: PrismaService,
@@ -6,20 +7,38 @@ export async function isRoomAvailable(
   checkIn: Date,
   checkOut: Date,
 ): Promise<boolean> {
+  const occupancyService = new OccupancyService();
   const room = await prisma.room.findUnique({
     where: { id: roomId },
     include: { branch: true },
   });
   if (!room) return false;
 
-  const bufferHours = room.bufferHours ?? room.branch.bufferHours ?? 2;
-  const conflictingBooking = await prisma.booking.findFirst({
+  const bufferHours = occupancyService.getBufferHours(
+    room.bufferHours,
+    room.branch.bufferHours,
+  );
+  const conflictingBookings = await prisma.booking.findMany({
     where: {
       roomId,
       status: { in: ['CONFIRMED', 'CHECKED_IN'] },
-      checkIn: { lt: new Date(checkOut.getTime() + bufferHours * 60 * 60 * 1000) },
-      checkOut: { gt: checkIn },
+      checkIn: {
+        lt: occupancyService.getOccupiedUntil({ checkOut }, bufferHours),
+      },
+    },
+    select: {
+      id: true,
+      checkIn: true,
+      checkOut: true,
+      actualCheckOut: true,
     },
   });
-  return !conflictingBooking;
+  return !conflictingBookings.some((booking) =>
+    occupancyService.hasOccupancyConflict(
+      booking,
+      checkIn,
+      checkOut,
+      bufferHours,
+    ),
+  );
 }

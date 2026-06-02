@@ -7,6 +7,7 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  ForbiddenException,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
@@ -17,6 +18,8 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { VerifyEmailDto } from './dto/verify-email.dto';
+import { ResendVerificationEmailDto } from './dto/resend-verification-email.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
@@ -40,9 +43,15 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register-owner')
-  @ApiOperation({ summary: 'Register a new organization' })
+  @ApiOperation({
+    summary:
+      'Register a new organization in ACTIVE_FREE_TRIAL and send verification email',
+  })
   @ApiBody({ type: RegisterDto })
-  @ApiResponse({ status: 201, description: 'Organization registered successfully' })
+  @ApiResponse({
+    status: 201,
+    description: 'Organization registered successfully',
+  })
   @ApiResponse({ status: 409, description: 'Email or slug already exists' })
   async register(
     @Body() dto: RegisterDto,
@@ -67,9 +76,18 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiBody({ type: LoginDto })
-  @ApiResponse({ status: 200, description: 'Login successful (httpOnly cookies set)' })
-  @ApiResponse({ status: 401, description: 'Invalid credentials or account locked' })
-  @ApiResponse({ status: 403, description: 'Account deactivated' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful (httpOnly cookies set)',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid credentials or account locked',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Account deactivated or organization not active',
+  })
   async login(
     @Body() dto: LoginDto,
     @Req() req: FastifyRequest,
@@ -92,7 +110,10 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Refresh access token using cookie' })
-  @ApiResponse({ status: 200, description: 'Tokens refreshed (new httpOnly cookies set)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Tokens refreshed (new httpOnly cookies set)',
+  })
   @ApiResponse({ status: 401, description: 'Refresh token missing or invalid' })
   async refresh(
     @Req() req: FastifyRequest,
@@ -105,14 +126,27 @@ export class AuthController {
     }
     const ip = req.ip;
     const deviceInfo = this.getDeviceInfo(req);
-    const result = await this.authService.refresh(token, ip, deviceInfo);
-    this.setAuthCookies(reply, result.accessToken, result.refreshToken);
-    return { message: 'Tokens refreshed' };
+    try {
+      const result = await this.authService.refresh(token, ip, deviceInfo);
+      this.setAuthCookies(reply, result.accessToken, result.refreshToken);
+      return { message: 'Tokens refreshed' };
+    } catch (error) {
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof ForbiddenException
+      ) {
+        this.clearAuthCookies(reply);
+      }
+
+      throw error;
+    }
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Logout (clears cookies and revokes refresh token)' })
+  @ApiOperation({
+    summary: 'Logout (clears cookies and revokes refresh token)',
+  })
   @ApiResponse({ status: 200, description: 'Logged out successfully' })
   async logout(
     @Req() req: FastifyRequest,
@@ -130,9 +164,39 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request password reset email' })
   @ApiBody({ type: ForgotPasswordDto })
-  @ApiResponse({ status: 200, description: 'Reset link sent (always returns success to prevent email enumeration)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Reset link sent (always returns success to prevent email enumeration)',
+  })
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
+  }
+
+  @Post('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Verify email using token from email' })
+  @ApiBody({ type: VerifyEmailDto })
+  @ApiResponse({ status: 200, description: 'Email verified successfully' })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid or expired verification token',
+  })
+  async verifyEmail(@Body() dto: VerifyEmailDto) {
+    return this.authService.verifyEmail(dto.token);
+  }
+
+  @Post('resend-verification-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Resend verification email' })
+  @ApiBody({ type: ResendVerificationEmailDto })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Verification link sent (always returns success to prevent email enumeration)',
+  })
+  async resendVerificationEmail(@Body() dto: ResendVerificationEmailDto) {
+    return this.authService.resendVerificationEmail(dto.email);
   }
 
   @Post('reset-password')
@@ -179,7 +243,9 @@ export class AuthController {
 
   private clearAuthCookies(reply: FastifyReply) {
     reply.clearCookie('accessToken', { path: this.ACCESS_COOKIE_OPTIONS.path });
-    reply.clearCookie('refreshToken', { path: this.REFRESH_COOKIE_OPTIONS.path });
+    reply.clearCookie('refreshToken', {
+      path: this.REFRESH_COOKIE_OPTIONS.path,
+    });
   }
 
   private getDeviceInfo(req: FastifyRequest) {

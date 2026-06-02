@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -17,6 +26,10 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import {
+  errorResponseSchema,
+  successResponseSchema,
+} from '../../common/swagger/response-schema.util';
 
 @ApiTags('Organizations')
 @Controller('organizations')
@@ -32,21 +45,24 @@ export class OrganizationsController {
   @ApiResponse({
     status: 201,
     description: 'Organization created',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-org-001',
-          name: 'An Nhiên Homestay',
-          slug: 'an-nhien-homestay',
-          businessType: 'HOMESTAY',
-          status: 'PENDING_APPROVAL',
-          createdAt: '2025-05-20T10:00:00.000Z',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-org-001',
+      name: 'An Nhiên Homestay',
+      slug: 'an-nhien-homestay',
+      businessType: 'HOMESTAY',
+      status: 'PENDING_APPROVAL',
+      createdAt: '2025-05-20T10:00:00.000Z',
+    }),
   })
-  @ApiResponse({ status: 409, description: 'Slug already exists' })
+  @ApiResponse({
+    status: 409,
+    description: 'Slug already exists',
+    schema: errorResponseSchema(
+      409,
+      'Organization slug already exists',
+      'CONFLICT',
+    ),
+  })
   create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateOrganizationDto,
@@ -58,7 +74,9 @@ export class OrganizationsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('SUPER_ADMIN')
   @ApiCookieAuth('accessToken')
-  @ApiOperation({ summary: 'List all organizations with pagination (SUPER_ADMIN)' })
+  @ApiOperation({
+    summary: 'List all organizations with pagination (SUPER_ADMIN)',
+  })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   @ApiQuery({ name: 'status', required: false, example: 'ACTIVE' })
@@ -67,32 +85,29 @@ export class OrganizationsController {
   @ApiResponse({
     status: 200,
     description: 'Paginated list of organizations',
-    schema: {
-      example: {
-        success: true,
-        data: [
-          {
-            id: 'uuid-org-001',
-            name: 'An Nhiên Homestay',
-            slug: 'an-nhien-homestay',
-            businessType: 'HOMESTAY',
-            status: 'ACTIVE',
-            owner: {
-              id: 'uuid-001',
-              email: 'owner@annhien.com',
-              phone: '0901234567',
-            },
-            subscription: {
-              planName: 'Trú Chân',
-              status: 'ACTIVE',
-              currentPeriodEnd: '2025-06-20T00:00:00.000Z',
-            },
-            _count: { branches: 2 },
+    schema: successResponseSchema(
+      [
+        {
+          id: 'uuid-org-001',
+          name: 'An Nhiên Homestay',
+          slug: 'an-nhien-homestay',
+          businessType: 'HOMESTAY',
+          status: 'ACTIVE',
+          owner: {
+            id: 'uuid-001',
+            email: 'owner@annhien.com',
+            phone: '0901234567',
           },
-        ],
-        meta: { total: 12, page: 1, limit: 20 },
-      },
-    },
+          subscription: {
+            planName: 'Trú Chân',
+            status: 'ACTIVE',
+            currentPeriodEnd: '2025-06-20T00:00:00.000Z',
+          },
+          _count: { branches: 2 },
+        },
+      ],
+      { total: 12, page: 1, limit: 20 },
+    ),
   })
   findAll(@Query() query: QueryOrganizationsDto) {
     return this.organizationsService.findAll(query);
@@ -106,29 +121,28 @@ export class OrganizationsController {
   @ApiResponse({
     status: 200,
     description: 'Organization details',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-org-001',
-          name: 'An Nhiên Homestay',
-          slug: 'an-nhien-homestay',
-          businessType: 'HOMESTAY',
-          logoUrl: 'https://res.cloudinary.com/demo/image/upload/logo.jpg',
-          status: 'ACTIVE',
-          subscription: {
-            planName: 'Trú Chân',
-            displayName: 'Trú Chân',
-            status: 'ACTIVE',
-            currentPeriodEnd: '2025-06-20T00:00:00.000Z',
-            maxBranches: 1,
-            canListOnMarketplace: true,
-          },
-        },
+    schema: successResponseSchema({
+      id: 'uuid-org-001',
+      name: 'An Nhiên Homestay',
+      slug: 'an-nhien-homestay',
+      businessType: 'HOMESTAY',
+      logoUrl: 'https://res.cloudinary.com/demo/image/upload/logo.jpg',
+      status: 'ACTIVE_FREE_TRIAL',
+      subscription: {
+        planName: 'Trú Chân',
+        displayName: 'Trú Chân',
+        status: 'TRIALING',
+        currentPeriodEnd: '2025-06-20T00:00:00.000Z',
+        maxBranches: 1,
+        canListOnMarketplace: true,
       },
-    },
+    }),
   })
-  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiResponse({
+    status: 404,
+    description: 'Organization not found',
+    schema: errorResponseSchema(404, 'Organization not found', 'NOT_FOUND'),
+  })
   findMyOrg(@CurrentUser('id') userId: string) {
     return this.organizationsService.findMyOrg(userId);
   }
@@ -142,17 +156,16 @@ export class OrganizationsController {
   @ApiResponse({
     status: 200,
     description: 'Organization updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-org-001',
-          name: 'An Nhiên Homestay & Resort',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-org-001',
+      name: 'An Nhiên Homestay & Resort',
+    }),
   })
-  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiResponse({
+    status: 404,
+    description: 'Organization not found',
+    schema: errorResponseSchema(404, 'Organization not found', 'NOT_FOUND'),
+  })
   updateMyOrg(
     @CurrentUser('id') userId: string,
     @Body() dto: UpdateOrganizationDto,
@@ -170,21 +183,17 @@ export class OrganizationsController {
   @ApiResponse({
     status: 200,
     description: 'Organization status updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-org-001',
-          status: 'ACTIVE',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-org-001',
+      status: 'PENDING_APPROVAL',
+    }),
   })
-  @ApiResponse({ status: 404, description: 'Organization not found' })
-  updateStatus(
-    @Param('id') id: string,
-    @Body() dto: UpdateOrgStatusDto,
-  ) {
+  @ApiResponse({
+    status: 404,
+    description: 'Organization not found',
+    schema: errorResponseSchema(404, 'Organization not found', 'NOT_FOUND'),
+  })
+  updateStatus(@Param('id') id: string, @Body() dto: UpdateOrgStatusDto) {
     return this.organizationsService.updateStatus(id, dto);
   }
 }

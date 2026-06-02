@@ -1,4 +1,13 @@
-import { Controller, Get, Patch, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Post,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -16,6 +25,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { successResponseSchema } from '../../common/swagger/response-schema.util';
 
 @ApiTags('Users')
 @Controller('users')
@@ -29,20 +39,15 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'Current user profile',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-001',
-          email: 'owner@annhien.com',
-          phone: '0901234567',
-          role: 'ORG_OWNER',
-          isEmailVerified: true,
-          twoFactorEnabled: false,
-          createdAt: '2025-01-15T08:00:00.000Z',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-001',
+      email: 'owner@annhien.com',
+      phone: '0901234567',
+      role: 'ORG_OWNER',
+      isEmailVerified: true,
+      twoFactorEnabled: false,
+      createdAt: '2025-01-15T08:00:00.000Z',
+    }),
   })
   async getMe(@CurrentUser('id') userId: string) {
     return this.usersService.getMe(userId);
@@ -56,16 +61,11 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'Profile updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-001',
-          email: 'owner@annhien.com',
-          phone: '0909999888',
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-001',
+      email: 'owner@annhien.com',
+      phone: '0909999888',
+    }),
   })
   async updateMe(
     @CurrentUser('id') userId: string,
@@ -87,26 +87,23 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'Paginated list of users',
-    schema: {
-      example: {
-        success: true,
-        data: [
-          {
-            id: 'uuid-001',
-            email: 'owner@annhien.com',
-            phone: '0901234567',
-            role: 'ORG_OWNER',
-            isActive: true,
-            createdAt: '2025-01-15T08:00:00.000Z',
-          },
-        ],
-        meta: {
-          total: 45,
-          page: 1,
-          limit: 20,
+    schema: successResponseSchema(
+      [
+        {
+          id: 'uuid-001',
+          email: 'owner@annhien.com',
+          phone: '0901234567',
+          role: 'ORG_OWNER',
+          isActive: true,
+          createdAt: '2025-01-15T08:00:00.000Z',
         },
+      ],
+      {
+        total: 45,
+        page: 1,
+        limit: 20,
       },
-    },
+    ),
   })
   async findAll(@Query() query: QueryUsersDto) {
     return this.usersService.findAll(query);
@@ -122,20 +119,12 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'User status updated',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid-001',
-          isActive: false,
-        },
-      },
-    },
+    schema: successResponseSchema({
+      id: 'uuid-001',
+      isActive: false,
+    }),
   })
-  async toggleActive(
-    @Param('id') id: string,
-    @Body() dto: ToggleActiveDto,
-  ) {
+  async toggleActive(@Param('id') id: string, @Body() dto: ToggleActiveDto) {
     return this.usersService.toggleActive(id, dto);
   }
 }

@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { AccessContextService } from '../../common/services/access-context.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpgradeSubscriptionDto } from './dto/upgrade-subscription.dto';
 
 @Injectable()
 export class SubscriptionsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessContextService: AccessContextService,
+  ) {}
 
   async getPlans() {
     return this.prisma.subscriptionPlan.findMany({
@@ -26,29 +30,7 @@ export class SubscriptionsService {
   }
 
   async resolveOrganizationIdForUser(userId: string) {
-    const ownedOrg = await this.prisma.organization.findFirst({
-      where: {
-        ownerId: userId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-    if (ownedOrg) return ownedOrg.id;
-
-    const staffMembership = await this.prisma.staff.findFirst({
-      where: {
-        userId,
-        isActive: true,
-        organization: { deletedAt: null },
-      },
-      select: { organizationId: true },
-    });
-
-    if (!staffMembership) {
-      throw new NotFoundException('Organization not found');
-    }
-
-    return staffMembership.organizationId;
+    return this.accessContextService.getOrganizationIdOrThrow(userId);
   }
 
   async getMySubscription(organizationId: string) {

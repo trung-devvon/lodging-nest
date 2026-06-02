@@ -1,5 +1,7 @@
-import { IsString, IsInt, IsNumber, IsOptional, Min, IsBoolean } from 'class-validator';
+import { Prisma } from '@prisma/client';
+import { IsString, IsInt, IsOptional, Min, IsBoolean } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { DecimalInput } from '../../../common/validators/decimal-input.decorator';
 
 export class UpdateRoomRateDto {
   @ApiPropertyOptional({ example: '3 giờ' })
@@ -13,11 +15,10 @@ export class UpdateRoomRateDto {
   @IsOptional()
   durationHours?: number;
 
-  @ApiPropertyOptional({ example: 220000 })
-  @IsNumber()
-  @Min(0)
+  @ApiPropertyOptional({ type: String, example: '220000.00' })
   @IsOptional()
-  price?: number;
+  @DecimalInput({ maxScale: 2, min: 0 })
+  price?: Prisma.Decimal;
 
   @ApiPropertyOptional({ example: true })
   @IsBoolean()

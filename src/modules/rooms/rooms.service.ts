@@ -6,14 +6,22 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RoomStatus } from '@prisma/client';
+import { AccessContextService } from '../../common/services/access-context.service';
+import { OccupancyService } from '../../common/services/occupancy.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { UpdateRoomDto } from './dto/update-room.dto';
 import { UpdateRoomStatusDto } from './dto/update-room-status.dto';
 import { QueryRoomsDto } from './dto/query-rooms.dto';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class RoomsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessContextService: AccessContextService,
+    private readonly occupancyService: OccupancyService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async create(
     organizationId: string,
@@ -27,7 +35,13 @@ export class RoomsService {
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
-    await this.ensureBranchManagerAccessToBranch(userId, organizationId, role, branchId);
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
+      userId,
+      organizationId,
+      role,
+      branchId,
+      'rooms',
+    );
 
     const subscription = await this.prisma.subscription.findFirst({
       where: { organizationId, status: { in: ['ACTIVE', 'TRIALING'] } },
@@ -35,7 +49,9 @@ export class RoomsService {
       orderBy: { createdAt: 'desc' },
     });
     if (!subscription) {
-      throw new BadRequestException('No active subscription. Please subscribe to a plan first.');
+      throw new BadRequestException(
+        'No active subscription. Please subscribe to a plan first.',
+      );
     }
 
     const roomCount = await this.prisma.room.count({
@@ -75,7 +91,11 @@ export class RoomsService {
     });
   }
 
-  async findAll(organizationId: string, branchId: string, query: QueryRoomsDto) {
+  async findAll(
+    organizationId: string,
+    branchId: string,
+    query: QueryRoomsDto,
+  ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, organizationId, deletedAt: null },
     });
@@ -89,7 +109,13 @@ export class RoomsService {
       where,
       include: {
         roomRates: {
-          select: { id: true, label: true, durationHours: true, price: true, isActive: true },
+          select: {
+            id: true,
+            label: true,
+            durationHours: true,
+            price: true,
+            isActive: true,
+          },
           where: { isActive: true },
           orderBy: { sortOrder: 'asc' },
         },
@@ -130,7 +156,13 @@ export class RoomsService {
           orderBy: { sortOrder: 'asc' },
         },
         roomRates: {
-          select: { id: true, label: true, durationHours: true, price: true, isActive: true },
+          select: {
+            id: true,
+            label: true,
+            durationHours: true,
+            price: true,
+            isActive: true,
+          },
           orderBy: { sortOrder: 'asc' },
         },
         branch: { select: { id: true, name: true } },
@@ -166,11 +198,12 @@ export class RoomsService {
     });
     if (!room) throw new NotFoundException('Room not found');
 
-    await this.ensureBranchManagerAccessToBranch(
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
       userId,
       organizationId,
       role,
       room.branchId,
+      'rooms',
     );
 
     return this.prisma.room.update({
@@ -197,29 +230,45 @@ export class RoomsService {
     userId: string,
     role: string,
     dto: UpdateRoomStatusDto,
+    actorIp?: string,
   ) {
     const room = await this.prisma.room.findFirst({
       where: { id, branch: { organizationId }, deletedAt: null },
-      select: { id: true, branchId: true },
+      select: { id: true, branchId: true, status: true },
     });
     if (!room) throw new NotFoundException('Room not found');
 
-    await this.ensureBranchManagerAccessToBranch(
+    await this.accessContextService.ensureBranchManagerAccessToBranch(
       userId,
       organizationId,
       role,
       room.branchId,
+      'rooms',
     );
 
     if (dto.status === 'OCCUPIED') {
-      throw new BadRequestException('OCCUPIED status is set automatically by the system');
+      throw new BadRequestException(
+        'OCCUPIED status is set automatically by the system',
+      );
     }
 
-    return this.prisma.room.update({
+    const updatedRoom = await this.prisma.room.update({
       where: { id },
       data: { status: dto.status },
       select: { id: true, name: true, status: true },
     });
+
+    await this.auditService.logRoomStatusChange({
+      organizationId,
+      actorUserId: userId,
+      actorIp,
+      roomId: room.id,
+      fromStatus: room.status,
+      toStatus: updatedRoom.status,
+      source: 'manual_room_status_update',
+    });
+
+    return updatedRoom;
   }
 
   async remove(id: string, organizationId: string) {
@@ -252,60 +301,58 @@ export class RoomsService {
     return { message: 'Room has been archived' };
   }
 
-  async checkAvailability(organizationId: string, branchId: string, checkIn: Date, checkOut: Date) {
+  async checkAvailability(
+    organizationId: string,
+    branchId: string,
+    checkIn: Date,
+    checkOut: Date,
+  ) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, organizationId, deletedAt: null },
     });
     if (!branch) throw new NotFoundException('Branch not found');
 
     const rooms = await this.prisma.room.findMany({
-      where: { branchId, deletedAt: null, status: { notIn: ['INACTIVE', 'MAINTENANCE'] } },
+      where: {
+        branchId,
+        deletedAt: null,
+        status: { notIn: ['INACTIVE', 'MAINTENANCE'] },
+      },
       select: { id: true, name: true, bufferHours: true },
     });
 
     const bookings = await this.prisma.booking.findMany({
       where: {
-        roomId: { in: rooms.map(r => r.id) },
+        roomId: { in: rooms.map((r) => r.id) },
         status: { in: ['CONFIRMED', 'CHECKED_IN'] },
-        checkIn: { lt: checkOut },
-        checkOut: { gt: checkIn },
       },
-      select: { roomId: true, checkIn: true, checkOut: true },
+      select: {
+        roomId: true,
+        checkIn: true,
+        checkOut: true,
+        actualCheckOut: true,
+      },
     });
 
-    const bookedRoomIds = new Set(bookings.map(b => b.roomId));
+    return rooms.map((room) => {
+      const bufferHours = this.occupancyService.getBufferHours(
+        room.bufferHours,
+        branch.bufferHours,
+      );
+      const roomBookings = bookings.filter(
+        (booking) => booking.roomId === room.id,
+      );
+      const nextAvailableAt = this.occupancyService
+        .getNextAvailableAt(roomBookings, checkIn, checkOut, bufferHours)
+        ?.toISOString();
+      const isAvailable = !nextAvailableAt;
 
-    return rooms.map(room => {
-      const isAvailable = !bookedRoomIds.has(room.id);
-      const booking = bookings.find(b => b.roomId === room.id);
       return {
         id: room.id,
         name: room.name,
         isAvailable,
-        nextAvailableAt: booking ? booking.checkOut.toISOString() : undefined,
+        nextAvailableAt,
       };
     });
-  }
-
-  private async ensureBranchManagerAccessToBranch(
-    userId: string,
-    organizationId: string,
-    role: string,
-    branchId: string,
-  ) {
-    if (role !== 'BRANCH_MANAGER') return;
-
-    const staff = await this.prisma.staff.findFirst({
-      where: {
-        userId,
-        organizationId,
-        isActive: true,
-      },
-      select: { branchId: true },
-    });
-
-    if (!staff?.branchId || staff.branchId !== branchId) {
-      throw new ForbiddenException('You can only manage rooms in your assigned branch');
-    }
   }
 }
