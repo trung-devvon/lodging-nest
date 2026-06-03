@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { EmailService } from '../../common/services/email.service';
@@ -17,6 +18,22 @@ import { LoginDto } from './dto/login.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+
+type VerifyEmailResult =
+  | {
+      message: string;
+      user: {
+        id: string;
+        email: string;
+        role: string;
+        isEmailVerified: boolean;
+      };
+      accessToken: string;
+      refreshToken: string;
+    }
+  | {
+      message: string;
+    };
 
 @Injectable()
 export class AuthService {
@@ -45,74 +62,79 @@ export class AuthService {
     this.accessTokenSecret = process.env.JWT_ACCESS_SECRET ?? 'access-secret';
   }
 
-  async register(dto: RegisterDto, ipAddress?: string, deviceInfo?: string) {
+  async register(dto: RegisterDto) {
+    const email = dto.email.toLowerCase();
+    const slug = dto.slug.trim();
+
     const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
+      where: { email },
     });
     if (existingUser) {
       throw new ConflictException('Email already registered');
     }
 
     const existingOrg = await this.prisma.organization.findUnique({
-      where: { slug: dto.slug },
+      where: { slug },
     });
     if (existingOrg) {
       throw new ConflictException('Organization slug already exists');
     }
 
     const passwordHash = await argon2.hash(dto.password);
-
-    const user = await this.prisma.$transaction(async (tx) => {
-      const defaultPlan = await tx.subscriptionPlan.findUnique({
-        where: { name: 'LU_HANH' },
-      });
-      if (!defaultPlan) {
-        throw new BadRequestException(
-          'Default subscription plan not found. Run seed first.',
-        );
-      }
-
-      const newUser = await tx.user.create({
-        data: {
-          email: dto.email.toLowerCase(),
-          passwordHash,
-          phone: dto.phone,
-          role: 'ORG_OWNER',
-        },
-      });
-
-      const organization = await tx.organization.create({
-        data: {
-          ownerId: newUser.id,
-          name: dto.name,
-          slug: dto.slug,
-          businessType: (dto.businessType as any) ?? 'HOMESTAY',
-          taxCode: dto.taxCode,
-          status: 'ACTIVE_FREE_TRIAL',
-        },
-      });
-
-      await tx.subscription.create({
-        data: {
-          organizationId: organization.id,
-          planId: defaultPlan.id,
-          status: 'TRIALING',
-          currentPeriodStart: new Date(),
-          currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-        },
-      });
-
-      return newUser;
+    const pendingByEmail = await this.prisma.pendingOwnerRegistration.findUnique(
+      {
+        where: { email },
+      },
+    );
+    const pendingBySlug = await this.prisma.pendingOwnerRegistration.findUnique({
+      where: { slug },
     });
 
-    const tokens = await this.generateTokens(
-      user.id,
-      user.role,
-      ipAddress,
-      deviceInfo,
+    if (pendingBySlug && pendingBySlug.email !== email) {
+      throw new ConflictException('Organization slug already exists');
+    }
+
+    const tokenPayload = this.createVerificationTokenPayload();
+
+    if (pendingByEmail) {
+      await this.prisma.pendingOwnerRegistration.update({
+        where: { id: pendingByEmail.id },
+        data: {
+          passwordHash,
+          phone: dto.phone,
+          name: dto.name,
+          slug,
+          businessType: (dto.businessType as any) ?? 'HOMESTAY',
+          taxCode: dto.taxCode,
+          verificationTokenHash: tokenPayload.tokenHash,
+          verificationExpiresAt: tokenPayload.expiresAt,
+        },
+      });
+    } else {
+      await this.prisma.pendingOwnerRegistration.create({
+        data: {
+          email,
+          passwordHash,
+          phone: dto.phone,
+          name: dto.name,
+          slug,
+          businessType: (dto.businessType as any) ?? 'HOMESTAY',
+          taxCode: dto.taxCode,
+          verificationTokenHash: tokenPayload.tokenHash,
+          verificationExpiresAt: tokenPayload.expiresAt,
+        },
+      });
+    }
+
+    await this.sendVerificationEmailOrThrow(
+      email,
+      dto.name,
+      tokenPayload.token,
     );
-    await this.issueEmailVerification(user.id, user.email, dto.name);
-    return { user, ...tokens };
+
+    return {
+      message: 'Verification link has been sent',
+    };
   }
 
   async login(dto: LoginDto, ipAddress?: string, deviceInfo?: string) {
@@ -173,6 +195,8 @@ export class AuthService {
       user.role,
       ipAddress,
       deviceInfo,
+      undefined,
+      true,
     );
     return { user, ...tokens };
   }
@@ -334,8 +358,111 @@ export class AuthService {
     };
   }
 
-  async verifyEmail(token: string) {
+  async verifyEmail(
+    token: string,
+    ipAddress?: string,
+    deviceInfo?: string,
+  ): Promise<VerifyEmailResult> {
     const tokenHash = createHash('sha256').update(token).digest('hex');
+    const pendingRegistration =
+      await this.prisma.pendingOwnerRegistration.findFirst({
+        where: {
+          verificationTokenHash: tokenHash,
+          verificationExpiresAt: { gt: new Date() },
+        },
+      });
+
+    if (pendingRegistration) {
+      const user = await this.prisma.$transaction(async (tx) => {
+        const [existingUser, existingOrg, defaultPlan] = await Promise.all([
+          tx.user.findUnique({
+            where: { email: pendingRegistration.email },
+            select: { id: true },
+          }),
+          tx.organization.findUnique({
+            where: { slug: pendingRegistration.slug },
+            select: { id: true },
+          }),
+          tx.subscriptionPlan.findUnique({
+            where: { name: 'LU_HANH' },
+          }),
+        ]);
+
+        if (existingUser) {
+          throw new ConflictException('Email already registered');
+        }
+
+        if (existingOrg) {
+          throw new ConflictException('Organization slug already exists');
+        }
+
+        if (!defaultPlan) {
+          throw new BadRequestException(
+            'Default subscription plan not found. Run seed first.',
+          );
+        }
+
+        const newUser = await tx.user.create({
+          data: {
+            email: pendingRegistration.email,
+            passwordHash: pendingRegistration.passwordHash,
+            phone: pendingRegistration.phone,
+            role: 'ORG_OWNER',
+            isEmailVerified: true,
+          },
+        });
+
+        const organization = await tx.organization.create({
+          data: {
+            ownerId: newUser.id,
+            name: pendingRegistration.name,
+            slug: pendingRegistration.slug,
+            businessType: pendingRegistration.businessType,
+            taxCode: pendingRegistration.taxCode,
+            status: 'ACTIVE_FREE_TRIAL',
+          },
+        });
+
+        await tx.subscription.create({
+          data: {
+            organizationId: organization.id,
+            planId: defaultPlan.id,
+            status: 'TRIALING',
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: new Date(
+              Date.now() + 30 * 24 * 60 * 60 * 1000,
+            ),
+          },
+        });
+
+        await tx.pendingOwnerRegistration.delete({
+          where: { id: pendingRegistration.id },
+        });
+
+        return newUser;
+      });
+
+      const tokens = await this.generateTokens(
+        user.id,
+        user.role,
+        ipAddress,
+        deviceInfo,
+        undefined,
+        true,
+      );
+
+      return {
+        message: 'Email has been verified successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          isEmailVerified: user.isEmailVerified,
+        },
+        ...tokens,
+      };
+    }
+
     const user = await this.prisma.user.findFirst({
       where: {
         emailVerifyTokenHash: tokenHash,
@@ -362,8 +489,26 @@ export class AuthService {
   }
 
   async resendVerificationEmail(email: string) {
+    const normalizedEmail = email.toLowerCase();
+    const pendingRegistration =
+      await this.prisma.pendingOwnerRegistration.findUnique({
+        where: { email: normalizedEmail },
+      });
+
+    if (pendingRegistration) {
+      await this.issuePendingRegistrationVerification(
+        pendingRegistration.id,
+        pendingRegistration.email,
+        pendingRegistration.name,
+      );
+
+      return {
+        message: 'If the email exists, a verification link has been sent',
+      };
+    }
+
     const user = await this.prisma.user.findUnique({
-      where: { email: email.toLowerCase() },
+      where: { email: normalizedEmail },
     });
 
     if (!user || user.isEmailVerified) {
@@ -377,7 +522,7 @@ export class AuthService {
       select: { name: true },
     });
 
-    await this.issueEmailVerification(
+    await this.issueUserEmailVerification(
       user.id,
       user.email,
       ownerOrganization?.name ?? 'your account',
@@ -465,6 +610,7 @@ export class AuthService {
     ipAddress?: string,
     deviceInfo?: string,
     familyId?: string,
+    replaceExistingSessions = false,
   ) {
     const accessToken = await this.jwtService.signAsync(
       { sub: userId, role },
@@ -476,17 +622,37 @@ export class AuthService {
 
     const refreshToken = randomBytes(48).toString('hex');
     const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+    const nextFamilyId = familyId ?? randomUUID();
 
-    await this.prisma.refreshToken.create({
-      data: {
-        userId,
-        familyId: familyId ?? randomUUID(),
-        tokenHash,
-        deviceInfo,
-        ipAddress,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      },
-    });
+    if (replaceExistingSessions) {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.refreshToken.deleteMany({
+          where: { userId },
+        });
+
+        await tx.refreshToken.create({
+          data: {
+            userId,
+            familyId: nextFamilyId,
+            tokenHash,
+            deviceInfo,
+            ipAddress,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        });
+      });
+    } else {
+      await this.prisma.refreshToken.create({
+        data: {
+          userId,
+          familyId: nextFamilyId,
+          tokenHash,
+          deviceInfo,
+          ipAddress,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+    }
 
     return { accessToken, refreshToken };
   }
@@ -509,37 +675,59 @@ export class AuthService {
     });
   }
 
-  private async issueEmailVerification(
+  private createVerificationTokenPayload() {
+    const token = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    return {
+      token,
+      tokenHash,
+      expiresAt: new Date(Date.now() + this.emailVerificationTtlMs),
+    };
+  }
+
+  private async issuePendingRegistrationVerification(
+    pendingRegistrationId: string,
+    email: string,
+    organizationName: string,
+  ) {
+    const verificationToken = this.createVerificationTokenPayload();
+
+    await this.prisma.pendingOwnerRegistration.update({
+      where: { id: pendingRegistrationId },
+      data: {
+        verificationTokenHash: verificationToken.tokenHash,
+        verificationExpiresAt: verificationToken.expiresAt,
+      },
+    });
+
+    await this.sendVerificationEmailOrThrow(
+      email,
+      organizationName,
+      verificationToken.token,
+    );
+  }
+
+  private async issueUserEmailVerification(
     userId: string,
     email: string,
     organizationName: string,
   ) {
-    const verificationToken = randomBytes(32).toString('hex');
-    const tokenHash = createHash('sha256')
-      .update(verificationToken)
-      .digest('hex');
+    const verificationToken = this.createVerificationTokenPayload();
 
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        emailVerifyTokenHash: tokenHash,
-        emailVerifyExpiresAt: new Date(
-          Date.now() + this.emailVerificationTtlMs,
-        ),
+        emailVerifyTokenHash: verificationToken.tokenHash,
+        emailVerifyExpiresAt: verificationToken.expiresAt,
       },
     });
 
-    try {
-      await this.emailService.sendVerificationEmail({
-        email,
-        organizationName,
-        token: verificationToken,
-      });
-    } catch (error) {
-      this.logger.warn(
-        `Unable to send verification email to ${email}: ${this.formatError(error)}`,
-      );
-    }
+    await this.sendVerificationEmailOrThrow(
+      email,
+      organizationName,
+      verificationToken.token,
+    );
   }
 
   private async sendResetPasswordEmail(email: string, resetToken: string) {
@@ -557,5 +745,26 @@ export class AuthService {
 
   private formatError(error: unknown) {
     return error instanceof Error ? error.message : 'Unknown error';
+  }
+
+  private async sendVerificationEmailOrThrow(
+    email: string,
+    organizationName: string,
+    token: string,
+  ) {
+    try {
+      await this.emailService.sendVerificationEmail({
+        email,
+        organizationName,
+        token,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Unable to send verification email to ${email}: ${this.formatError(error)}`,
+      );
+      throw new ServiceUnavailableException(
+        'Unable to send verification email',
+      );
+    }
   }
 }

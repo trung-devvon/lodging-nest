@@ -6,7 +6,7 @@
     "assets": [
       {
         "include": "common/email/templates/**/*.ejs",
-        "outDir": "dist"
+        "outDir": "dist/src"
       }
     ],
     "deleteOutDir": true

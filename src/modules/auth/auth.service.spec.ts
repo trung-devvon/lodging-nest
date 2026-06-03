@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { AuthService } from './auth.service';
@@ -15,13 +15,29 @@ describe('AuthService', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      create: jest.fn(),
     },
     organization: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      create: jest.fn(),
+    },
+    pendingOwnerRegistration: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
+    },
+    subscriptionPlan: {
+      findUnique: jest.fn(),
+    },
+    subscription: {
+      create: jest.fn(),
     },
     refreshToken: {
       create: jest.fn(),
+      deleteMany: jest.fn(),
       updateMany: jest.fn(),
       findUnique: jest.fn(),
     },
@@ -44,6 +60,8 @@ describe('AuthService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     process.env.JWT_ACCESS_SECRET = 'test-access-secret';
+    emailService.sendVerificationEmail.mockResolvedValue(undefined);
+    emailService.sendResetPasswordEmail.mockResolvedValue(undefined);
     accessContextService.ensureWorkspaceAccessOrThrow.mockResolvedValue({
       organizationId: 'org-1',
       status: 'ACTIVE_FREE_TRIAL',
@@ -62,34 +80,14 @@ describe('AuthService', () => {
     service = module.get<AuthService>(AuthService);
   });
 
-  it('register sends a verification email after creating the owner account', async () => {
+  it('register stores a pending owner registration and sends a verification email', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.organization.findUnique.mockResolvedValue(null);
-    const organizationCreate = jest.fn().mockResolvedValue({ id: 'org-1' });
-    prisma.$transaction.mockImplementation(async (callback: any) =>
-      callback({
-        subscriptionPlan: {
-          findUnique: jest.fn().mockResolvedValue({ id: 'plan-1' }),
-        },
-        user: {
-          create: jest.fn().mockResolvedValue({
-            id: 'user-1',
-            email: 'owner@example.com',
-            role: 'ORG_OWNER',
-            isEmailVerified: false,
-          }),
-        },
-        organization: {
-          create: organizationCreate,
-        },
-        subscription: {
-          create: jest.fn().mockResolvedValue({ id: 'sub-1' }),
-        },
-      }),
-    );
-    jwtService.signAsync.mockResolvedValue('access-token');
-    prisma.refreshToken.create.mockResolvedValue({ id: 'refresh-1' });
-    prisma.user.update.mockResolvedValue({ id: 'user-1' });
+    prisma.pendingOwnerRegistration.findUnique.mockResolvedValue(null);
+    prisma.pendingOwnerRegistration.create.mockResolvedValue({
+      id: 'pending-1',
+      email: 'owner@example.com',
+    });
 
     const result = await service.register({
       email: 'owner@example.com',
@@ -99,10 +97,15 @@ describe('AuthService', () => {
       phone: '0901234567',
     });
 
-    expect(result.user.email).toBe('owner@example.com');
-    expect(organizationCreate).toHaveBeenCalledWith({
+    expect(result).toEqual({
+      message: 'Verification link has been sent',
+    });
+    expect(prisma.pendingOwnerRegistration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        status: 'ACTIVE_FREE_TRIAL',
+        email: 'owner@example.com',
+        businessType: 'HOMESTAY',
+        verificationTokenHash: expect.any(String),
+        verificationExpiresAt: expect.any(Date),
       }),
     });
     expect(emailService.sendVerificationEmail).toHaveBeenCalledWith(
@@ -112,13 +115,29 @@ describe('AuthService', () => {
         token: expect.any(String),
       }),
     );
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'user-1' },
-      data: {
-        emailVerifyTokenHash: expect.any(String),
-        emailVerifyExpiresAt: expect.any(Date),
-      },
+  });
+
+  it('register fails when the verification email cannot be sent', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.organization.findUnique.mockResolvedValue(null);
+    prisma.pendingOwnerRegistration.findUnique.mockResolvedValue(null);
+    prisma.pendingOwnerRegistration.create.mockResolvedValue({
+      id: 'pending-1',
+      email: 'owner@example.com',
     });
+    emailService.sendVerificationEmail.mockRejectedValue(
+      new Error('smtp rejected credentials'),
+    );
+
+    await expect(
+      service.register({
+        email: 'owner@example.com',
+        password: 'Abc@123456',
+        name: 'An Nhien Homestay',
+        slug: 'an-nhien-homestay',
+        phone: '0901234567',
+      }),
+    ).rejects.toThrow(ServiceUnavailableException);
   });
 
   it('login rejects tenant users whose organization is no longer active', async () => {
@@ -143,6 +162,45 @@ describe('AuthService', () => {
         password: 'Abc@123456',
       }),
     ).rejects.toThrow(ForbiddenException);
+  });
+
+  it('login replaces existing refresh token sessions for the user', async () => {
+    const passwordHash = await argon2.hash('Abc@123456');
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      email: 'owner@example.com',
+      role: 'ORG_OWNER',
+      isActive: true,
+      deletedAt: null,
+      failedLoginCount: 0,
+      lockedUntil: null,
+      passwordHash,
+    });
+    prisma.user.update.mockResolvedValue({ id: 'user-1' });
+    jwtService.signAsync.mockResolvedValue('access-token');
+    prisma.$transaction.mockImplementation(async (callback: any) =>
+      callback({
+        refreshToken: {
+          deleteMany: jest.fn().mockResolvedValue({ count: 3 }),
+          create: jest.fn().mockResolvedValue({ id: 'refresh-1' }),
+        },
+      }),
+    );
+
+    await expect(
+      service.login({
+        email: 'owner@example.com',
+        password: 'Abc@123456',
+      }),
+    ).resolves.toEqual({
+      user: expect.objectContaining({
+        id: 'user-1',
+        email: 'owner@example.com',
+        role: 'ORG_OWNER',
+      }),
+      accessToken: 'access-token',
+      refreshToken: expect.any(String),
+    });
   });
 
   it('forgotPassword returns a generic response for unknown emails', async () => {
@@ -183,43 +241,83 @@ describe('AuthService', () => {
     });
   });
 
-  it('verifyEmail marks the user as verified when the token is valid', async () => {
-    prisma.user.findFirst.mockResolvedValue({
-      id: 'user-1',
-      isEmailVerified: false,
+  it('verifyEmail completes pending owner registration when the token is valid', async () => {
+    prisma.pendingOwnerRegistration.findFirst.mockResolvedValue({
+      id: 'pending-1',
+      email: 'owner@example.com',
+      passwordHash: 'hashed-password',
+      phone: '0901234567',
+      name: 'An Nhien Homestay',
+      slug: 'an-nhien-homestay',
+      taxCode: '0123456789',
+      businessType: 'HOMESTAY',
     });
-    prisma.user.update.mockResolvedValue({ id: 'user-1' });
+    prisma.$transaction
+      .mockImplementationOnce(async (callback: any) =>
+        callback({
+          user: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({
+              id: 'user-1',
+              email: 'owner@example.com',
+              role: 'ORG_OWNER',
+              isEmailVerified: true,
+            }),
+          },
+          organization: {
+            findUnique: jest.fn().mockResolvedValue(null),
+            create: jest.fn().mockResolvedValue({ id: 'org-1' }),
+          },
+          subscriptionPlan: {
+            findUnique: jest.fn().mockResolvedValue({ id: 'plan-1' }),
+          },
+          subscription: {
+            create: jest.fn().mockResolvedValue({ id: 'sub-1' }),
+          },
+          pendingOwnerRegistration: {
+            delete: jest.fn().mockResolvedValue({ id: 'pending-1' }),
+          },
+        }),
+      )
+      .mockImplementationOnce(async (callback: any) =>
+        callback({
+          refreshToken: {
+            deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+            create: jest.fn().mockResolvedValue({ id: 'refresh-1' }),
+          },
+        }),
+      );
+    jwtService.signAsync.mockResolvedValue('access-token');
 
     await expect(service.verifyEmail('plain-token')).resolves.toEqual({
       message: 'Email has been verified successfully',
+      user: {
+        id: 'user-1',
+        email: 'owner@example.com',
+        role: 'ORG_OWNER',
+        isEmailVerified: true,
+      },
+      accessToken: 'access-token',
+      refreshToken: expect.any(String),
     });
 
-    expect(prisma.user.findFirst).toHaveBeenCalledWith({
+    expect(prisma.pendingOwnerRegistration.findFirst).toHaveBeenCalledWith({
       where: {
-        emailVerifyTokenHash: expect.any(String),
-        emailVerifyExpiresAt: { gt: expect.any(Date) },
-      },
-    });
-    expect(prisma.user.update).toHaveBeenCalledWith({
-      where: { id: 'user-1' },
-      data: {
-        isEmailVerified: true,
-        emailVerifyTokenHash: null,
-        emailVerifyExpiresAt: null,
+        verificationTokenHash: expect.any(String),
+        verificationExpiresAt: { gt: expect.any(Date) },
       },
     });
   });
 
-  it('resendVerificationEmail reissues a token for unverified accounts', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      id: 'user-1',
+  it('resendVerificationEmail reissues a token for pending registrations', async () => {
+    prisma.pendingOwnerRegistration.findUnique.mockResolvedValue({
+      id: 'pending-1',
       email: 'owner@example.com',
-      isEmailVerified: false,
-    });
-    prisma.organization.findFirst.mockResolvedValue({
       name: 'An Nhien Homestay',
     });
-    prisma.user.update.mockResolvedValue({ id: 'user-1' });
+    prisma.pendingOwnerRegistration.update.mockResolvedValue({
+      id: 'pending-1',
+    });
 
     await expect(
       service.resendVerificationEmail('owner@example.com'),

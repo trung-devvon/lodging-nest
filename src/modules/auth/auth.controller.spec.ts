@@ -6,6 +6,7 @@ describe('AuthController', () => {
   let controller: AuthController;
 
   const authService = {
+    register: jest.fn(),
     forgotPassword: jest.fn(),
     verifyEmail: jest.fn(),
     resendVerificationEmail: jest.fn(),
@@ -26,14 +27,25 @@ describe('AuthController', () => {
     authService.verifyEmail.mockResolvedValue({
       message: 'Email has been verified successfully',
     });
+    const reply = {
+      setCookie: jest.fn(),
+    } as any;
 
     await expect(
-      controller.verifyEmail({ token: 'verify-token' }),
+      controller.verifyEmail(
+        { token: 'verify-token' },
+        { ip: '127.0.0.1', headers: { 'user-agent': 'jest' } } as any,
+        reply,
+      ),
     ).resolves.toEqual({
       message: 'Email has been verified successfully',
     });
 
-    expect(authService.verifyEmail).toHaveBeenCalledWith('verify-token');
+    expect(authService.verifyEmail).toHaveBeenCalledWith(
+      'verify-token',
+      '127.0.0.1',
+      'jest',
+    );
   });
 
   it('forwards resend verification requests to AuthService', async () => {

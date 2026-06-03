@@ -45,31 +45,17 @@ export class AuthController {
   @Post('register-owner')
   @ApiOperation({
     summary:
-      'Register a new organization in ACTIVE_FREE_TRIAL and send verification email',
+      'Initiate owner registration and send verification email',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
-    status: 201,
-    description: 'Organization registered successfully',
+    status: 200,
+    description: 'Verification email sent',
   })
   @ApiResponse({ status: 409, description: 'Email or slug already exists' })
-  async register(
-    @Body() dto: RegisterDto,
-    @Req() req: FastifyRequest,
-    @Res({ passthrough: true }) reply: FastifyReply,
-  ) {
-    const ip = req.ip;
-    const deviceInfo = this.getDeviceInfo(req);
-    const result = await this.authService.register(dto, ip, deviceInfo);
-    this.setAuthCookies(reply, result.accessToken, result.refreshToken);
-    return {
-      user: {
-        id: result.user.id,
-        email: result.user.email,
-        role: result.user.role,
-        isEmailVerified: result.user.isEmailVerified,
-      },
-    };
+  @HttpCode(HttpStatus.OK)
+  async register(@Body() dto: RegisterDto) {
+    return this.authService.register(dto);
   }
 
   @Post('login')
@@ -182,8 +168,27 @@ export class AuthController {
     status: 400,
     description: 'Invalid or expired verification token',
   })
-  async verifyEmail(@Body() dto: VerifyEmailDto) {
-    return this.authService.verifyEmail(dto.token);
+  async verifyEmail(
+    @Body() dto: VerifyEmailDto,
+    @Req() req: FastifyRequest,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const ip = req.ip;
+    const deviceInfo = this.getDeviceInfo(req);
+    const result = await this.authService.verifyEmail(dto.token, ip, deviceInfo);
+
+    if ('accessToken' in result && 'refreshToken' in result) {
+      this.setAuthCookies(reply, result.accessToken, result.refreshToken);
+    }
+
+    if ('user' in result) {
+      return {
+        message: result.message,
+        user: result.user,
+      };
+    }
+
+    return result;
   }
 
   @Post('resend-verification-email')

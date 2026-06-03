@@ -188,6 +188,23 @@ model User {
   @@map("users")
 }
 
+model PendingOwnerRegistration {
+  id                    String       @id @default(uuid())
+  email                 String       @unique
+  passwordHash          String
+  phone                 String?
+  name                  String
+  slug                  String       @unique
+  taxCode               String?
+  businessType          BusinessType
+  verificationTokenHash String       @unique
+  verificationExpiresAt DateTime
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+
+  @@map("pending_owner_registrations")
+}
+
 model Organization {
   id           String             @id @default(uuid())
   ownerId      String

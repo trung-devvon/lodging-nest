@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { renderFile } from 'ejs';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { join } from 'path';
+import { existsSync } from 'fs';
+import { join, resolve } from 'path';
 
 interface EmailTemplatePayload {
   actionLabel: string;
@@ -30,18 +31,15 @@ interface ResetPasswordEmailPayload {
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
   private readonly transporter: Transporter;
-  private readonly templatePath = join(
-    __dirname,
-    '../email/templates/action-email.ejs',
-  );
+  private readonly templatePath = this.resolveTemplatePath();
   private readonly fromEmail =
     process.env.MAIL_FROM_EMAIL ?? 'no-reply@example.com';
   private readonly fromName = process.env.MAIL_FROM_NAME ?? 'Lodging Platform';
   private readonly frontendVerifyUrl =
-    process.env.MAIL_VERIFY_URL ?? 'http://localhost:5173/verify-email';
+    process.env.MAIL_VERIFY_URL ?? 'http://localhost:3000/verify-email';
   private readonly frontendResetPasswordUrl =
     process.env.MAIL_RESET_PASSWORD_URL ??
-    'http://localhost:5173/reset-password';
+    'http://localhost:3000/reset-password';
   private readonly mailConfigured = Boolean(process.env.SMTP_HOST);
 
   constructor() {
@@ -76,20 +74,20 @@ export class EmailService {
     );
 
     return this.sendTemplatedEmail(payload.email, {
-      subject: 'Xac minh email chu tai khoan',
-      preheader: `Hoan tat xac minh email cho ${organizationName}.`,
-      title: 'Xac minh email cua ban',
-      greeting: `Xin chao ${organizationName},`,
+      subject: 'Xác minh email chủ tài khoản',
+      preheader: `Hoàn tất xác minh email cho ${organizationName}.`,
+      title: 'Xác minh email của bạn',
+      greeting: `Xin chào ${organizationName},`,
       bodyParagraphs: [
-        `Tai khoan chu so huu cho ${organizationName} da duoc tao thanh cong.`,
-        'Hay xac minh email de hoan tat kich hoat va dam bao ban nhan duoc cac thong bao quan trong tu he thong.',
+        `Tài khoản chủ sở hữu cho ${organizationName} đã được tạo thành công.`,
+        'Hãy xác minh email để hoàn tất kích hoạt và đảm bảo bạn nhận được các thông báo quan trọng từ hệ thống.',
       ],
-      actionLabel: 'Xac minh email',
+      actionLabel: 'Xác minh email',
       actionUrl,
       secondaryText:
-        'Lien ket nay se het han sau 24 gio. Neu ban khong thuc hien yeu cau nay, ban co the bo qua email nay.',
+        'Liên kết này sẽ hết hạn sau 24 giờ. Nếu bạn không thực hiện yêu cầu này, bạn có thể bỏ qua email này.',
       footer:
-        'Can ho tro? Hay lien he doi van hanh de duoc ho tro kich hoat tai khoan.',
+        'Cần hỗ trợ? Hãy liên hệ đội vận hành để được hỗ trợ kích hoạt tài khoản.',
     });
   }
 
@@ -100,20 +98,20 @@ export class EmailService {
     );
 
     return this.sendTemplatedEmail(payload.email, {
-      subject: 'Dat lai mat khau tai khoan',
-      preheader: 'Dat lai mat khau cho tai khoan cua ban.',
-      title: 'Dat lai mat khau',
-      greeting: 'Xin chao,',
+      subject: 'Đặt lại mật khẩu tài khoản',
+      preheader: 'Đặt lại mật khẩu cho tài khoản của bạn.',
+      title: 'Đặt lại mật khẩu',
+      greeting: 'Xin chào,',
       bodyParagraphs: [
-        'Chung toi da nhan duoc yeu cau dat lai mat khau cho tai khoan cua ban.',
-        'Bam vao nut ben duoi de tao mat khau moi va tiep tuc truy cap he thong mot cach an toan.',
+        'Chúng tôi đã nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn.',
+        'Bấm vào nút bên dưới để tạo mật khẩu mới và tiếp tục truy cập hệ thống một cách an toàn.',
       ],
-      actionLabel: 'Tao mat khau moi',
+      actionLabel: 'Tạo mật khẩu mới',
       actionUrl,
       secondaryText:
-        'Lien ket nay se het han sau 60 phut. Neu ban khong yeu cau dat lai mat khau, hay doi mat khau ngay neu nghi ngo tai khoan bi truy cap.',
+        'Liên kết này sẽ hết hạn sau 60 phút. Nếu bạn không yêu cầu đặt lại mật khẩu, hãy đổi mật khẩu ngay nếu nghi ngờ tài khoản bị truy cập.',
       footer:
-        'Vi bao mat, email nay duoc gui tu dong va khong can phan hoi truc tiep.',
+        'Vì bảo mật, email này được gửi tự động và không cần phản hồi trực tiếp.',
     });
   }
 
@@ -171,5 +169,25 @@ export class EmailService {
 
   private parseBoolean(value?: string) {
     return value?.toLowerCase() === 'true';
+  }
+
+  private resolveTemplatePath() {
+    const templateRelativePath = 'common/email/templates/action-email.ejs';
+    const candidatePaths = [
+      join(__dirname, '../email/templates/action-email.ejs'),
+      resolve(process.cwd(), 'src', templateRelativePath),
+      resolve(process.cwd(), 'dist', 'src', templateRelativePath),
+      resolve(process.cwd(), 'dist', templateRelativePath),
+    ];
+
+    const matchedPath = candidatePaths.find((candidatePath) =>
+      existsSync(candidatePath),
+    );
+
+    if (matchedPath) {
+      return matchedPath;
+    }
+
+    return candidatePaths[0];
   }
 }
